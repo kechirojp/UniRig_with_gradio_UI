@@ -1,0 +1,49 @@
+__target__: unirig_skin
+
+num_train_vertex: 4096
+num_heads: 8
+feat_dim: 384
+grid_size: 0.005
+mlp_dim: 512
+num_bone_attn: 4
+num_mesh_bone_attn: 10
+bone_embed_dim: 1024
+
+mesh_encoder:
+  # vertex groups are handled in model
+  __target__: ptv3obj
+  pretrained_path: ~
+  freeze_encoder: False
+  in_channels: 6
+  cls_mode: False
+  shuffle_orders: True
+  drop_path: 0.0
+  upcast_attention: False
+  upcast_softmax: False
+  enc_channels: [32, 64, 128, 192, 384]
+  enc_num_head: [2, 4, 8, 16, 24]
+  enable_qknorm: True
+  layer_norm: True
+
+global_encoder:
+  __target__: michelangelo_encoder
+  pretrained_path: ~
+  freeze_encoder: False
+  device: cpu
+  dtype: float32
+  num_latents: 512
+  embed_dim: 64
+  point_feats: 3
+  num_freqs: 8
+  include_pi: False
+  heads: 8
+  width: 512
+  num_encoder_layers: 16
+  use_ln_post: True
+  init_scale: 0.25
+  qkv_bias: False
+  use_checkpoint: False
+  flash: True
+  supervision_type: sdf
+  query_method: False
+  token_num: 1024
