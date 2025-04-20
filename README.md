@@ -3,7 +3,7 @@
 <div align="center">
 
 [![Project Page](https://img.shields.io/badge/🏠-Project%20Page-blue.svg)](https://zjp-shadow.github.io/works/UniRig/)
-[![Paper](https://img.shields.io/badge/📑-Paper-green.svg)](https://arxiv.org/abs/2504.12451)
+[![Paper](https://img.shields.io/badge/📑-Paper-green.svg)](https://arxiv.org)
 [![Model](https://img.shields.io/badge/🤗-Model-yellow.svg)](https://huggingface.co/VAST-AI/UniRig)
 
 </div>
@@ -113,15 +113,25 @@ Supported input formats: `.obj`, `.fbx`, `.glb`, and `.vrm`
 
 ### Skinning Weight Prediction (Coming Soon)
 ```bash
-# Will be available in a future release
+# Skin a single file
+bash launch/inference/generate_skin.sh --input examples/skeleton/giraffe.fbx --output results/giraffe_skin.fbx
+
+# Process multiple files in a directory
+bash launch/inference/generate_skin.sh --input_dir <your_input_directory> --output_dir <your_output_directory>
 ```
+
+Note that the command above uses an **edited-version** from skeleton phase. The results may degrade significantly if the skeleton is inaccurate — for example, if tail bones or wing bones are missing. Therefore, it is recommended to refine the skeleton before performing skinning in order to achieve better results.
 
 ### Merge the Predicted Results
 
 Combine the predicted skeleton with your original 3D model to create a fully rigged asset:
 
 ```bash
+# Merge skeleton from skeleton prediction
 bash launch/inference/merge.sh --source results/giraffe_skeleton.fbx --target examples/giraffe.glb --output results/giraffe_rigged.glb
+
+# Or merge skin from skin prediction
+bash launch/inference/merge.sh --source results/giraffe_skin.fbx --target examples/giraffe.glb --output results/giraffe_rigged.glb
 ```
 
 ## Models
