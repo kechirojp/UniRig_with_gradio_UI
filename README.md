@@ -33,7 +33,7 @@ This repository provides the code implementation for the entire framework vision
 
 *   **Unified Model:** Aims to handle diverse model categories (humans, animals, objects) with a single framework.
 *   **Automated Skeleton Generation:** Predicts topologically valid skeleton structures. **(✅ Available in current release)**
-*   **Automated Skinning Prediction:** Predicts per-vertex skinning weights. **(⏳ Coming Soon)**
+*   **Automated Skinning Prediction:** Predicts per-vertex skinning weights. **(✅ Available in current release)**
 *   **Bone Attribute Prediction:** Predicts attributes like stiffness for physics-based secondary motion. **(⏳ Coming Soon)**
 *   **High Accuracy & Robustness:** Achieves state-of-the-art results on challenging datasets (as shown in the paper with Rig-XL/VRoid training).
 *   **Efficient Tokenization:** Uses Skeleton Tree Tokenization for compact representation and efficient processing.
@@ -45,10 +45,9 @@ We are open-sourcing UniRig progressively. Please note the current status:
 
 **Available Now (Initial Release):**
 *   ✅ **Code:** Implementation for skeleton and skinning prediction.
-*   ✅ **Model:** Skeleton Prediction checkpoint trained on [**Articulation-XL2.0**](https://huggingface.co/datasets/Seed3D/Articulation-XL2.0). Available on [Hugging Face](https://huggingface.co/VAST-AI/UniRig).
+*   ✅ **Model:** Skeleton & Skinning Prediction checkpoint trained on [**Articulation-XL2.0**](https://huggingface.co/datasets/Seed3D/Articulation-XL2.0). Available on [Hugging Face](https://huggingface.co/VAST-AI/UniRig).
 
 **Planned Future Releases:**
-*   ⏳ Skinning Weight Prediction Model checkpoint(s).
 *   ⏳ Release of the **Rig-XL** and **VRoid** datasets used in the paper.
 *   ⏳ Full UniRig model checkpoints (Skeleton + Skinning) trained on Rig-XL/VRoid, replicating the paper's main results.
 
@@ -111,7 +110,7 @@ bash launch/inference/generate_skeleton.sh --input examples/giraffe.glb --output
 
 Supported input formats: `.obj`, `.fbx`, `.glb`, and `.vrm`
 
-### Skinning Weight Prediction (Coming Soon)
+### Skinning Weight Prediction (Available Now)
 ```bash
 # Skin a single file
 bash launch/inference/generate_skin.sh --input examples/skeleton/giraffe.fbx --output results/giraffe_skin.fbx
