@@ -10,7 +10,7 @@
 
 ![teaser](assets/doc/unirig_teaser.png)
 
-This repository contains the official implementation for the **UniRig** framework, a unified solution for automatic 3D model rigging, developed by Tsinghua University and [Tripo](https://www.tripo3d.ai).
+This repository contains the official implementation for the **SIGGRAPH'25 (TOG) UniRig** framework, a unified solution for automatic 3D model rigging, developed by Tsinghua University and [Tripo](https://www.tripo3d.ai).
 
 **Paper:** [One Model to Rig Them All: Diverse Skeleton Rigging with UniRig](https://arxiv.org/abs/2504.12451)
 
@@ -144,7 +144,12 @@ Available models are hosted on the: https://huggingface.co/VAST-AI/UniRig
 ## Citation
 
 ```
-
+@article{zhang2025unirig,
+  title={One Model to Rig Them All: Diverse Skeleton Rigging with UniRig},
+  author={Zhang, Jia-Peng and Pu, Cheng-Feng and Guo, Meng-Hao and Cao, Yan-Pei and Hu, Shi-Min},
+  journal={arXiv preprint arXiv:2504.12451},
+  year={2025}
+}
 ```
 
 ## Acknowledgements
