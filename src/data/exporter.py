@@ -12,6 +12,9 @@ except:
     OPEN3D_EQUIPPED = False
 
 class Exporter():
+    def __init__(self, blender_path=None, render_config=None):
+        self.blender_path = blender_path
+        self.render_config = render_config
     
     def _safe_make_dir(self, path):
         if os.path.dirname(path) == '':

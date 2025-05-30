@@ -1,0 +1,23 @@
+# Alternative transform config without pyrender voxelization
+sampler_config: &sampler_config
+  method: mix
+  num_samples: 32768
+  vertex_samples: 8192
+
+tail_config: &tail_config
+  copy_joint_to_tail: False # Be careful ! If tail is important, keep it False !!!
+  connect_tail_to_unique_son: True
+
+order_config: &order_config
+  skeleton_path:
+    vroid: ./configs/skeleton/vroid.yaml
+    mixamo: ./configs/skeleton/mixamo.yaml
+
+predict_transform_config: 
+  augment_config:
+    augment_affine_config:
+      normalize_into: [-1.0, 1.0]
+  tail_config: *tail_config
+  order_config: *order_config
+  # Remove vertex_group_config to avoid pyrender dependency
+  sampler_config: *sampler_config

@@ -135,6 +135,45 @@ class DetokenzeOutput(Exporter):
     def export_skeleton_sequence(self, path: str):
         parents = self._get_parents()
         self._export_skeleton_sequence(joints=self.bones[:, 3:], parents=parents, path=path)
+    
+    def __torch_function__(self, func, types, args=(), kwargs=None):
+        """Prevent PyTorch from treating this as a tensor-like object"""
+        return NotImplemented
+    
+    def __reduce_ex__(self, protocol):
+        """Custom pickling to avoid PyTorch Lightning collection processing"""
+        return (self.__class__, (
+            self.tokens,
+            self.bones,
+            self.parents,
+            self.tails,
+            self.no_skin,
+            self.cls,
+            self.parts,
+            self.names,
+            self.continuous_range
+        ))
+    
+    def to(self, device, **kwargs):
+        """Prevent device movement by returning self unchanged"""
+        return self
+    
+    def cpu(self):
+        """Prevent CPU movement by returning self unchanged"""
+        return self
+    
+    def cuda(self, device=None):
+        """Prevent CUDA movement by returning self unchanged"""
+        return self
+    
+    def __dataclass_fields__(self):
+        """Hide dataclass fields from Lightning's collection system"""
+        return {}
+    
+    @classmethod
+    def __is_dataclass__(cls):
+        """Tell Lightning this is not a dataclass"""
+        return False
 
 class TokenizerSpec(ABC):
     """

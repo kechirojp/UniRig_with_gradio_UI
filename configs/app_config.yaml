@@ -1,0 +1,62 @@
+# /app/configs/app_config.yaml
+
+# --- General Paths ---
+# Base directory for all processing, relative to app.py or absolute
+working_directory_base: "./pipeline_work" # All intermediate files will go into subdirs here
+
+# --- Stage 1: Mesh Extraction (src.data.extract) ---
+mesh_extraction:
+  python_script_path: "src/data/extract.py"
+  extract_output_subdir: "01_extracted_mesh"
+  output_npz_filename: "{model_name}_raw_data.npz"
+  # Parameters for src.data.extract.py
+  num_runs: 1 
+  faces_target_count: 1500000
+  # The critical output for skeleton generation is <output_dir>/<model_name>/raw_data.npz
+  # We will pass input_file and output_dir directly to the extract function.
+
+# --- Stage 2: Skeleton Generation (run.py with AR model) ---
+skeleton_generation:
+  skeleton_output_subdir: "02_skeleton_output"
+  task_config_template_male: "configs/task/quick_inference_skeleton_articulationxl_ar_256.yaml"
+  task_config_template_female: "configs/task/quick_inference_skeleton_articulationxl_ar_256.yaml"
+  task_config_template_neutral: "configs/task/quick_inference_skeleton_articulationxl_ar_256.yaml"
+  seed: 42
+  output_npz_filename: "predict_skeleton.npz"
+  output_fbx_filename: "skeleton.fbx"
+  output_txt_filename: "skeleton_pred.txt"
+  datalist_filename: "skeleton_input_datalist.txt"
+
+
+# --- Stage 3: Skinning Generation (run.py with Skin model) ---
+skinning_prediction:
+  skin_output_subdir: "03_skinning_output"
+  task_config_template: "configs/task/quick_inference_unirig_skin.yaml"
+  seed: 42
+  output_skinned_fbx_filename: "skinned_model.fbx"
+  output_skinning_npz_filename: "predict_skin.npz"
+  datalist_filename: "skinning_input_datalist.txt"
+
+# --- Stage 4: Merging (src.inference.merge) ---
+model_merging:
+  merge_output_subdir: "04_final_rigged_model"
+  python_script_path: "src/inference/merge.py"
+  output_filename_base: "final_rigged_model"
+  output_merged_fbx_filename: "final_rigged_model.fbx"
+
+# --- Blender settings (for conversions, if needed by Python directly) ---
+blender:
+  executable_path: "blender" # Or full path if not in PATH
+  conversion_script_path: "blender/fbx_to_glb_converter.py" # Relative to app.py or absolute path
+  conversion_output_subdir: "05_blender_conversions" # Subdirectory within working_directory_base
+
+# --- Python executable for run.py ---
+# This is needed if we decide to use subprocess for run.py, otherwise not.
+# For now, we aim to import and run its main function directly.
+# python_executable: "/opt/conda/envs/UniRig/bin/python3"
+
+gradio_interface:
+  server_name: "0.0.0.0"
+  server_port: 7860
+  share: False
+  inbrowser: True

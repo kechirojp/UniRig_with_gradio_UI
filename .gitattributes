@@ -1,5 +1,28 @@
-examples/*.glb filter=lfs diff=lfs merge=lfs -text
-examples/*.fbx filter=lfs diff=lfs merge=lfs -text
-examples/*.vrm filter=lfs diff=lfs merge=lfs -text
-examples/*.FBX filter=lfs diff=lfs merge=lfs -text
-examples/*.obj filter=lfs diff=lfs merge=lfs -text
+# Git LFS configuration for UniRig 3D Rigging Application
+# ======================================================
+
+# 3D Model Files
+*.glb filter=lfs diff=lfs merge=lfs -text
+*.fbx filter=lfs diff=lfs merge=lfs -text
+*.FBX filter=lfs diff=lfs merge=lfs -text
+*.obj filter=lfs diff=lfs merge=lfs -text
+*.OBJ filter=lfs diff=lfs merge=lfs -text
+*.vrm filter=lfs diff=lfs merge=lfs -text
+*.blend filter=lfs diff=lfs merge=lfs -text
+
+# Data Files
+*.npz filter=lfs diff=lfs merge=lfs -text
+*.pkl filter=lfs diff=lfs merge=lfs -text
+*.ckpt filter=lfs diff=lfs merge=lfs -text
+*.pth filter=lfs diff=lfs merge=lfs -text
+
+# Media Files
+*.png filter=lfs diff=lfs merge=lfs -text
+*.jpg filter=lfs diff=lfs merge=lfs -text
+*.jpeg filter=lfs diff=lfs merge=lfs -text
+*.gif filter=lfs diff=lfs merge=lfs -text
+
+# Archive Files
+*.zip filter=lfs diff=lfs merge=lfs -text
+*.tar.gz filter=lfs diff=lfs merge=lfs -text
+*.7z filter=lfs diff=lfs merge=lfs -text

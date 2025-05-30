@@ -1,0 +1,17 @@
+{
+    "name": "UniRig Dev Container",
+    "dockerFile": "../Dockerfile", // Dockerfileのパスをプロジェクトルートからの相対パスで指定
+    "workspaceFolder": "/app",      // コンテナ内のワークスペースフォルダ
+    "customizations": {
+        "vscode": {
+            "extensions": [
+                "ms-python.python",
+                "ms-toolsai.jupyter",
+                // その他、開発に必要な拡張機能
+            ]
+        }
+    },
+    "postCreateCommand": "source activate UniRig", // コンテナ作成後に実行するコマンド
+    "forwardPorts": [7860], // Gradioで使用するポートをフォワード
+    "runArgs": ["--gpus=all"] // GPUを利用するための引数
+}

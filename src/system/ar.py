@@ -148,12 +148,13 @@ class ARWriter(BasePredictionWriter):
                 path=None,
                 cls=detokenize_output.cls,
             )
-            if not self.user_mode and self.export_npz is not None:
-                print(make_path(self.export_npz, 'npz'))
-                raw_data.save(path=make_path(self.export_npz, 'npz'))
-            if not self.user_mode and self.export_obj is not None:
+            if self.export_npz is not None:
+                npz_path = make_path(self.export_npz, 'npz')
+                print(npz_path)
+                raw_data.save(path=npz_path)
+            if self.export_obj is not None:
                 raw_data.export_skeleton(path=make_path(self.export_obj, 'obj'))
-            if not self.user_mode and self.export_pc is not None:
+            if self.export_pc is not None:
                 raw_data.export_pc(path=make_path(self.export_pc, 'obj'))
             if self.export_fbx is not None:
                 if not self.user_mode:
@@ -163,3 +164,25 @@ class ARWriter(BasePredictionWriter):
                         raw_data.export_fbx(path=self.output_name)
                     else:
                         raw_data.export_fbx(path=make_path(self.export_fbx, 'fbx', trim=True))
+            
+            # Export skeleton prediction text file
+            if self.export_fbx is not None:
+                skeleton_txt_path = make_path('skeleton_pred', 'txt')
+                os.makedirs(os.path.dirname(skeleton_txt_path), exist_ok=True)
+                
+                # Create skeleton prediction text content
+                with open(skeleton_txt_path, 'w') as f:
+                    f.write("# Skeleton Prediction Data\n")
+                    f.write(f"# Number of joints: {len(detokenize_output.joints)}\n")
+                    f.write(f"# Class: {detokenize_output.cls}\n")
+                    f.write("# Format: joint_index x y z parent_index name\n")
+                    
+                    for i, (joint, name) in enumerate(zip(detokenize_output.joints, detokenize_output.names)):
+                        parent_idx = detokenize_output.parents[i] if detokenize_output.parents[i] is not None else -1
+                        f.write(f"{i} {joint[0]:.6f} {joint[1]:.6f} {joint[2]:.6f} {parent_idx} {name}\n")
+                    
+                    if detokenize_output.tails is not None:
+                        f.write("\n# Tail positions\n")
+                        f.write("# Format: joint_index tail_x tail_y tail_z\n")
+                        for i, tail in enumerate(detokenize_output.tails):
+                            f.write(f"{i} {tail[0]:.6f} {tail[1]:.6f} {tail[2]:.6f}\n")

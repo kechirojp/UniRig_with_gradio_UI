@@ -1,59 +1,169 @@
-# igonore all pychace
-**/__pycache__/
+# ================================
+# UniRig 3D Rigging Application
+# .gitignore for GitHub Repository
+# ================================
+
+# ============ Python ============
+# Byte-compiled / optimized / DLL files
+__pycache__/
 *.py[cod]
 *$py.class
-
-# ignore tmp & output files
-_data/
-tmp/
-*.npz
-*.blend
-*.blend1
-*.blend2
-
-# ignore logs
-wandb/
-lightning_logs/
-*.log
-
-# ignore experiments
-experiments/
-results/
-dataset_clean/
-logs/
-datalist/
-dataset_inference/
-dataset_inference_clean/
-feature_viz/
+*.so
 
 # Distribution / packaging
-dist/
+.Python
 build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
 *.egg-info/
+.installed.cfg
 *.egg
-*.whl
+MANIFEST
 
-# Virtual environments
-venv/
-env/
-.env/
-.venv/
-
-# IDE specific files
-.idea/
-.vscode/
-*.swp
-*.swo
-.DS_Store
-
-# Jupyter Notebook
-.ipynb_checkpoints
-*.ipynb
+# PyInstaller
+*.manifest
+*.spec
 
 # Unit test / coverage reports
 htmlcov/
 .tox/
+.nox/
 .coverage
 .coverage.*
+.cache
+nosetests.xml
 coverage.xml
 *.cover
+.hypothesis/
+.pytest_cache/
+
+# ============ Virtual Environments ============
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# ============ IDE & Editors ============
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# ============ Jupyter Notebooks ============
+.ipynb_checkpoints
+*.ipynb
+
+# ============ Machine Learning ============
+# PyTorch Lightning
+lightning_logs/
+wandb/
+mlruns/
+
+# Model checkpoints and weights
+*.pth
+*.pt
+*.ckpt
+*.pkl
+*.joblib
+
+# ============ 3D Processing Files ============
+# Large 3D model files (except examples)
+*.fbx
+*.obj
+*.blend
+*.blend1
+*.blend2
+
+# Mesh and point cloud data
+*.npz
+*.ply
+*.off
+*.xyz
+
+# ============ Temporary & Cache Files ============
+# Temporary directories
+tmp/
+temp/
+tmp.*/
+temp.*/
+
+# Cache directories
+.cache/
+cache/
+__cache__/
+
+# Log files
+*.log
+logs/
+*.out
+output_log.txt
+
+# ============ UniRig Specific ============
+# Processing output directories
+pipeline_work/
+outputs/
+results/
+
+# Gradio temporary files
+gradio_tmp_files/
+
+# Test output directories
+test_*/
+output_*/
+
+# Dataset directories (large files)
+dataset_clean/
+dataset_inference/
+dataset_inference_clean/
+_data/
+
+# Feature visualization
+feature_viz/
+
+# Experiment outputs
+experiments/
+
+# Data lists
+datalist/
+
+# ============ System Files ============
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# ============ CUDA & GPU ============
+# CUDA cache
+*.cubin
+*.fatbin
+
+# ============ Keep Important Files ============
+# Force include important example files and configs
+!examples/*.glb
+!examples/*.fbx
+!blender/*.py
+!configs/*.yaml
+!src/**/*.py
+!*.md
+!*.txt
+!Dockerfile
+!LICENSE

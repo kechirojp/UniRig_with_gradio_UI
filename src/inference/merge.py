@@ -22,7 +22,7 @@ import bpy
 from mathutils import Vector
 
 from ..data.raw_data import RawData, RawSkin
-from ..data.extract import process_mesh, process_armature, get_arranged_bones
+from ..data.extract import process_mesh_for_merge, process_armature_for_merge, get_arranged_bones
 
 def parser():
     parser = argparse.ArgumentParser()
@@ -417,10 +417,10 @@ def transfer(source: str, target: str, output: str, add_root: bool=False):
     except Exception as e:
         print(f"failed to load {source}")
         return
-    vertices, faces = process_mesh()
+    vertices, faces = process_mesh_for_merge()
     arranged_bones = get_arranged_bones(armature)
     skin = get_skin(arranged_bones)
-    joints, tails, parents, names, matrix_local = process_armature(armature, arranged_bones)
+    joints, tails, parents, names, matrix_local = process_armature_for_merge(armature, arranged_bones)
     merge(
         path=target,
         output_path=output,

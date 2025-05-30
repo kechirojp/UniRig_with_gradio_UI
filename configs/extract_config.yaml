@@ -1,0 +1,14 @@
+# Mesh extraction configuration
+verbose: true
+remove_duplicated_vertices: true
+merge_vertices: true
+
+# Blender processing settings
+use_modifier_stack: true
+triangulate_faces: true
+calculate_normals: true
+
+# Output settings
+output_format: npz
+include_armature: true
+include_mesh: true

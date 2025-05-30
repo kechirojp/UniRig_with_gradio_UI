@@ -23,20 +23,28 @@ while [[ "$#" -gt 0 ]]; do
         --input_dir) input_dir="$2"; shift ;;
         --output_dir) output_dir="$2"; shift ;;
         --output) output="$2"; shift ;;
+        --npz_dir) npz_dir="$2"; shift ;;
         *) echo "Unknown parameter: $1"; exit 1 ;;
     esac
     shift
 done
 
-# 1. extract mesh
+# 1. extract mesh (for skeleton generation - needs raw_data.npz)
+time=$(date +%Y_%m_%d_%H_%M_%S)
 cmd=" \
-    bash ./launch/inference/extract.sh \
+    python -m src.data.extract \
     --config $config \
-    --require_suffix $require_suffix \
     --force_override $force_override \
     --num_runs $num_runs \
-    --faces_target_count $faces_target_count \
+    --target_count $faces_target_count \
+    --id 0 \
+    --time $time \
 "
+# The --require_suffix logic is now handled inside extract.py based on the config or defaults.
+# The --cfg_task is not directly used by extract.py anymore.
+# It's assumed that the $config (e.g., configs/data/quick_inference.yaml) will point to
+# the correct settings for data extraction, including any necessary component paths or values.
+
 if [ -n "$input" ]; then
     cmd="$cmd --input $input"
 fi
@@ -47,7 +55,6 @@ if [ -n "$npz_dir" ]; then
     cmd="$cmd --output_dir $npz_dir"
 fi
 
-cmd="$cmd &"
 eval $cmd
 
 wait
@@ -67,11 +74,11 @@ fi
 if [ -n "$output" ]; then
     cmd="$cmd --output=$output"
 fi
-if [ -n "$output_dir" ]; then
-    cmd="$cmd --output_dir=$output_dir"
-fi
 if [ -n "$npz_dir" ]; then
-    cmd="$cmd --npz_dir=$npz_dir"
+    cmd="$cmd --npz_dir=$npz_dir --output_dir=$npz_dir"
+fi
+if [ -n "$output_dir" ] && [ -z "$npz_dir" ]; then
+    cmd="$cmd --output_dir=$output_dir"
 fi
 
 eval $cmd
