@@ -50,6 +50,12 @@ class RawData(Exporter):
     # local coordinate
     matrix_local: Union[ndarray, None]
     
+    # UV coordinates for texture mapping
+    uv_coords: Union[List, None]=None
+    
+    # Material information including textures
+    materials: Union[List, None]=None
+    
     # path to data
     path: Union[str, None]=None
     

@@ -50,6 +50,35 @@ blender:
   conversion_script_path: "blender/fbx_to_glb_converter.py" # Relative to app.py or absolute path
   conversion_output_subdir: "05_blender_conversions" # Subdirectory within working_directory_base
 
+# --- Blender Native Texture Flow (Priority 1 Implementation) ---
+blender_native_texture_flow:
+  blender_native_subdir: "06_blender_native" # .blend files for progressive processing
+  material_metadata_subdir: "07_material_metadata" # JSON storage for material structure
+  final_output_subdir: "08_final_output" # Final rigged models with textures
+  
+  # Stage-specific configurations
+  material_analysis:
+    output_blend_filename: "stage1_analyzed.blend"
+    metadata_filename: "material_structure.json"
+    texture_backup_subdir: "texture_backup"
+  
+  rigging_integration:
+    output_blend_filename: "stage2_rigged.blend"
+    validation_fbx_filename: "stage2_validation.fbx"
+  
+  material_restoration:
+    output_blend_filename: "stage3_restored.blend"
+    validation_fbx_filename: "stage3_validation.fbx"
+  
+  export_optimization:
+    final_fbx_filename: "final_rigged_with_textures.fbx"
+    final_glb_filename: "final_rigged_with_textures.glb"
+    
+  # Processing options
+  enable_progressive_validation: true
+  enable_metadata_backup: true
+  preserve_original_file_structure: true
+
 # --- Python executable for run.py ---
 # This is needed if we decide to use subprocess for run.py, otherwise not.
 # For now, we aim to import and run its main function directly.

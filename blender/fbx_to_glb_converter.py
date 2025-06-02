@@ -48,11 +48,23 @@ def convert_fbx_to_glb(input_path, output_path=None):
         if output_dir and not os.path.exists(output_dir):
             os.makedirs(output_dir, exist_ok=True)
         
-        # Export as GLB
+        # Export as GLB with embedded textures
         print(f"Exporting GLB file: {output_path}")
         bpy.ops.export_scene.gltf(
             filepath=output_path,
-            export_format='GLB'
+            export_format='GLB',
+            # Material settings
+            export_materials='EXPORT',  # Export materials with textures
+            # Image/texture settings (Blender 4.2 compatible)
+            export_image_format='AUTO',  # Use original format when possible
+            # Mesh settings
+            export_normals=True,
+            export_tangents=False,
+            # Note: export_tex_coords removed - not available in Blender 4.2
+            # UV coordinates are automatically exported with materials
+            # Animation settings
+            export_animations=True,  # Keep animations from FBX
+            export_frame_range=False
         )
         
         print(f"Successfully converted {input_path} to {output_path}")

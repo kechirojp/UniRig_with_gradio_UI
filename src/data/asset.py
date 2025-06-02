@@ -73,6 +73,12 @@ class Asset(Exporter):
     # sampled vertex groups, every vertex group should be (N, J)
     sampled_vertex_groups: Union[Dict[str, ndarray], None]=None
     
+    # UV coordinates for texture mapping
+    uv_coordinates: Union[List, None]=None
+    
+    # Material information including textures
+    materials: Union[List, None]=None
+    
     # {id: part}, part==None -> a spring token
     parts_bias: Union[Dict[int, Union[str, None]], None]=None
     

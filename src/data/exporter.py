@@ -306,7 +306,8 @@ class Exporter():
                     continue
                 ob.vertex_groups[n].add([v], vertex_group_reweight[v, ii], 'REPLACE')
 
-    def _clean_bpy(self):
+    def _clean_bpy(self, preserve_textures=False):
+        """Clean Blender data with optional texture preservation."""
         import bpy # type: ignore
         for c in bpy.data.actions:
             bpy.data.actions.remove(c)
@@ -316,16 +317,20 @@ class Exporter():
             bpy.data.cameras.remove(c)
         for c in bpy.data.collections:
             bpy.data.collections.remove(c)
-        for c in bpy.data.images:
-            bpy.data.images.remove(c)
-        for c in bpy.data.materials:
-            bpy.data.materials.remove(c)
+        
+        # Conditionally preserve images and materials for textures
+        if not preserve_textures:
+            for c in bpy.data.images:
+                bpy.data.images.remove(c)
+            for c in bpy.data.materials:
+                bpy.data.materials.remove(c)
+            for c in bpy.data.textures:
+                bpy.data.textures.remove(c)
+        
         for c in bpy.data.meshes:
             bpy.data.meshes.remove(c)
         for c in bpy.data.objects:
             bpy.data.objects.remove(c)
-        for c in bpy.data.textures:
-            bpy.data.textures.remove(c)
     
     def _export_fbx(
         self,
@@ -350,7 +355,7 @@ class Exporter():
         '''
         import bpy # type: ignore
         self._safe_make_dir(path)
-        self._clean_bpy()
+        self._clean_bpy(preserve_textures=True)
         self._make_armature(
             vertices=vertices,
             joints=joints,
@@ -368,8 +373,20 @@ class Exporter():
             tails=tails,
         )
         
-        # always enable add_leaf_bones to keep leaf bones
-        bpy.ops.export_scene.fbx(filepath=path, check_existing=False, add_leaf_bones=False)
+        # Export FBX with embedded textures and materials
+        bpy.ops.export_scene.fbx(
+            filepath=path, 
+            check_existing=False, 
+            add_leaf_bones=False,
+            # Texture embedding settings
+            path_mode='COPY',  # Copy textures to output directory
+            embed_textures=True,  # Embed textures in FBX
+            # Material settings
+            use_mesh_modifiers=True,
+            use_custom_props=True,
+            # Animation settings (if needed)
+            bake_anim=False
+        )
     
     def _export_render(
         self,
@@ -415,7 +432,7 @@ class Exporter():
             bones[:, 3:] = _apply(bones[:, 3:], trans_vertex)
         
         # bpy api calls
-        self._clean_bpy()
+        self._clean_bpy(preserve_textures=True)
         bpy.context.scene.render.engine = 'BLENDER_WORKBENCH'
         bpy.context.scene.render.film_transparent = True
         bpy.context.scene.display.shading.background_type = 'VIEWPORT'

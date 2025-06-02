@@ -133,6 +133,37 @@ class ARWriter(BasePredictionWriter):
             num_p = num_points[id]
             num_f = num_faces[id]
             
+            # Load original material data from the extraction NPZ file
+            original_uv_coords = []
+            original_materials = []
+            try:
+                # Get the path from batch - this might be a directory or NPZ file
+                batch_path = paths[id]
+                original_npz_path = batch_path
+                
+                # If it's a directory, look for raw_data.npz inside it
+                if os.path.isdir(batch_path):
+                    original_npz_path = os.path.join(batch_path, 'raw_data.npz')
+                
+                print(f"DEBUG: ARWriter batch path: {batch_path}")
+                print(f"DEBUG: ARWriter original NPZ path: {original_npz_path}")
+                
+                if os.path.exists(original_npz_path):
+                    print(f"DEBUG: ARWriter loading original material data from: {original_npz_path}")
+                    original_data = RawData.load(original_npz_path)
+                    if hasattr(original_data, 'uv_coords') and original_data.uv_coords is not None:
+                        original_uv_coords = original_data.uv_coords
+                        print(f"DEBUG: ARWriter loaded {len(original_uv_coords)} UV coordinates")
+                    if hasattr(original_data, 'materials') and original_data.materials is not None:
+                        original_materials = original_data.materials
+                        print(f"DEBUG: ARWriter loaded {len(original_materials)} materials")
+                else:
+                    print(f"DEBUG: ARWriter - original NPZ path not found: {original_npz_path}")
+            except Exception as e:
+                print(f"DEBUG: ARWriter - failed to load original material data: {e}")
+                import traceback
+                print(f"DEBUG: ARWriter - traceback: {traceback.format_exc()}")
+            
             raw_data = RawData(
                 vertices=origin_vertices[id, :num_p],
                 vertex_normals=origin_vertex_normals[id, :num_p],
@@ -145,6 +176,8 @@ class ARWriter(BasePredictionWriter):
                 no_skin=detokenize_output.no_skin,
                 names=detokenize_output.names,
                 matrix_local=None,
+                uv_coords=original_uv_coords,
+                materials=original_materials,
                 path=None,
                 cls=detokenize_output.cls,
             )

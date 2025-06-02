@@ -212,7 +212,32 @@ class SkinWriter(BasePredictionWriter):
                         else:
                             tails_np = None
                         
-                        # Create RawData object
+                        # Load UV coordinates and materials from original skeleton NPZ file
+                        original_uv_coords = None
+                        original_materials = None
+                        try:
+                            # Try to find the original skeleton NPZ file that contains texture data
+                            # The batch path should lead us to the skeleton NPZ file
+                            batch_path = batch.get('path', [None])[0] if isinstance(batch.get('path'), list) else batch.get('path')
+                            if batch_path and batch_path.endswith('predict_skeleton.npz'):
+                                original_skeleton_npz_path = batch_path
+                                logger.info(f"DEBUG: Loading texture data from skeleton NPZ: {original_skeleton_npz_path}")
+                                
+                                if os.path.exists(original_skeleton_npz_path):
+                                    from ..data.raw_data import RawData
+                                    original_skeleton_data = RawData.load(original_skeleton_npz_path)
+                                    if hasattr(original_skeleton_data, 'uv_coords') and original_skeleton_data.uv_coords is not None:
+                                        original_uv_coords = original_skeleton_data.uv_coords
+                                        logger.info(f"DEBUG: Loaded {len(original_uv_coords)} UV coordinates from skeleton NPZ")
+                                    if hasattr(original_skeleton_data, 'materials') and original_skeleton_data.materials is not None:
+                                        original_materials = original_skeleton_data.materials
+                                        logger.info(f"DEBUG: Loaded {len(original_materials)} materials from skeleton NPZ")
+                                else:
+                                    logger.warning(f"DEBUG: Skeleton NPZ path does not exist: {original_skeleton_npz_path}")
+                        except Exception as e:
+                            logger.warning(f"DEBUG: Could not load texture data from skeleton NPZ: {e}")
+                        
+                        # Create RawData object with preserved texture information
                         from ..data.raw_data import RawData
                         raw_data_obj = RawData(
                             vertices=vertices_np,
@@ -225,7 +250,9 @@ class SkinWriter(BasePredictionWriter):
                             no_skin=None,
                             parents=parents_list,
                             names=[f"joint_{i}" for i in range(len(joints_np))],
-                            matrix_local=None
+                            matrix_local=None,
+                            uv_coords=original_uv_coords,  # Preserve UV coordinates
+                            materials=original_materials,  # Preserve materials
                         )
                         raw_data_batch = [raw_data_obj]
                         logger.info(f"Successfully constructed RawData object with name: '{data_name}'")
@@ -344,6 +371,8 @@ class SkinWriter(BasePredictionWriter):
                         parents=raw_data.parents,
                         names=raw_data.names,
                         matrix_local=raw_data.matrix_local,
+                        uv_coords=getattr(raw_data, 'uv_coords', None),  # Preserve UV coordinates
+                        materials=getattr(raw_data, 'materials', None),  # Preserve materials
                         path=raw_data.path,
                         cls=raw_data.cls
                     )
@@ -370,6 +399,8 @@ class SkinWriter(BasePredictionWriter):
                         parents=raw_data.parents,
                         names=raw_data.names,
                         matrix_local=raw_data.matrix_local,
+                        uv_coords=getattr(raw_data, 'uv_coords', None),  # Preserve UV coordinates
+                        materials=getattr(raw_data, 'materials', None),  # Preserve materials
                         path=raw_data.path,
                         cls=raw_data.cls
                     )

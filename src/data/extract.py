@@ -24,6 +24,8 @@ from box import Box
 import datetime
 import signal
 import atexit
+import shutil  # Added for texture file management
+from pathlib import Path  # Added for path handling
 
 # Force disable Blender's default crash handler to prevent segfaults
 try:
@@ -105,7 +107,7 @@ if not raw_data_imported:
     print("WARNING: Could not import RawData class, using minimal implementation")
     # Minimal RawData implementation
     class RawData:
-        def __init__(self, vertices, vertex_normals, faces, face_normals, joints, tails, skin, no_skin, parents, names, matrix_local):
+        def __init__(self, vertices, vertex_normals, faces, face_normals, joints, tails, skin, no_skin, parents, names, matrix_local, uv_coords=None, materials=None):
             self.vertices = vertices
             self.vertex_normals = vertex_normals
             self.faces = faces
@@ -117,6 +119,8 @@ if not raw_data_imported:
             self.parents = parents
             self.names = names
             self.matrix_local = matrix_local
+            self.uv_coords = uv_coords or []
+            self.materials = materials or []
         
         def check(self):
             # Minimal validation
@@ -142,6 +146,8 @@ if not raw_data_imported:
                 parents=self.parents,
                 names=self.names,
                 matrix_local=self.matrix_local,
+                uv_coords=self.uv_coords,
+                materials=self.materials,
                 path=path,
                 cls='RawData'
             )
@@ -172,24 +178,24 @@ def load(filepath: str):
             bpy.ops.import_scene.vrm(
                 filepath=filepath,
                 use_addon_preferences=True,
-                extract_textures_into_folder=False,
+                extract_textures_into_folder=True,
                 make_new_texture_folder=False,
-                set_shading_type_to_material_on_import=False,
+                set_shading_type_to_material_on_import=True,
                 set_view_transform_to_standard_on_import=True,
                 set_armature_display_to_wire=True,
                 set_armature_display_to_show_in_front=True,
                 set_armature_bone_shape_to_default=True,
-                disable_bake=True,
+                disable_bake=False,
             )
         elif filepath.endswith(".obj"):
             print("DEBUG: Importing OBJ file")
             bpy.ops.wm.obj_import(filepath=filepath)
         elif filepath.endswith(".fbx") or filepath.endswith(".FBX"):
-            print("DEBUG: Importing FBX file")
-            bpy.ops.import_scene.fbx(filepath=filepath, ignore_leaf_bones=False, use_image_search=False)
+            print("DEBUG: Importing FBX file with texture preservation")
+            bpy.ops.import_scene.fbx(filepath=filepath, ignore_leaf_bones=False, use_image_search=True)
         elif filepath.endswith(".glb") or filepath.endswith(".gltf"):
-            print("DEBUG: Importing GLB/GLTF file")
-            bpy.ops.import_scene.gltf(filepath=filepath, import_pack_images=False)
+            print("DEBUG: Importing GLB/GLTF file with texture preservation")
+            bpy.ops.import_scene.gltf(filepath=filepath, import_pack_images=True)
         elif filepath.endswith(".dae"):
             print("DEBUG: Importing DAE file")
             bpy.ops.wm.collada_import(filepath=filepath)
@@ -322,17 +328,19 @@ def clean_bpy():
 
 
 def process_mesh(objects):
-    """Process mesh data from Blender objects with memory optimization."""
-    print("DEBUG: Entering process_mesh")
+    """Process mesh data from Blender objects with texture preservation."""
+    print("DEBUG: Entering process_mesh with texture preservation")
     
     mesh_objects = [obj for obj in objects if obj.type == 'MESH']
     if not mesh_objects:
         print("No mesh objects found")
-        return np.array([]), np.array([]), np.array([]), np.array([])
+        return np.array([]), np.array([]), np.array([]), np.array([]), [], []
     
     all_vertices = []
     all_vertex_normals = []
     all_faces = []
+    all_uv_coordinates = []
+    all_materials = []
     vertex_offset = 0
     
     for obj in mesh_objects:
@@ -363,9 +371,45 @@ def process_mesh(objects):
             faces = [[mesh.loops[loop_idx].vertex_index + vertex_offset for loop_idx in tri.loops] 
                     for tri in mesh.loop_triangles]
             
+            # Extract UV coordinates if available
+            uv_coords = []
+            if mesh.uv_layers:
+                uv_layer = mesh.uv_layers.active
+                if uv_layer:
+                    print(f"DEBUG: Extracting UV coordinates from layer: {uv_layer.name}")
+                    uv_coords = [[uv_layer.data[loop_idx].uv.x, uv_layer.data[loop_idx].uv.y] 
+                               for tri in mesh.loop_triangles for loop_idx in tri.loops]
+            
+            # Extract material information
+            materials = []
+            if obj.data.materials:
+                print(f"DEBUG: Found {len(obj.data.materials)} materials")
+                for material in obj.data.materials:
+                    if material:
+                        material_info = {
+                            'name': material.name,
+                            'use_nodes': material.use_nodes if hasattr(material, 'use_nodes') else False
+                        }
+                        
+                        # Extract texture information if available
+                        if material.use_nodes and material.node_tree:
+                            texture_nodes = [node for node in material.node_tree.nodes 
+                                           if node.type == 'TEX_IMAGE']
+                            if texture_nodes:
+                                material_info['textures'] = []
+                                for tex_node in texture_nodes:
+                                    if tex_node.image:
+                                        material_info['textures'].append({
+                                            'name': tex_node.image.name,
+                                            'filepath': tex_node.image.filepath if hasattr(tex_node.image, 'filepath') else ''
+                                        })
+                        materials.append(material_info)
+            
             all_vertices.append(vertices)
             all_vertex_normals.append(vertex_normals)
             all_faces.extend(faces)
+            all_uv_coordinates.append(uv_coords)
+            all_materials.append(materials)
             vertex_offset += len(vertices)
             
             # Clean up mesh data immediately
@@ -395,16 +439,32 @@ def process_mesh(objects):
                 if norm > 0:
                     normal = normal / norm
                 face_normals[i] = normal
+                
+        # Combine UV coordinates
+        combined_uv_coords = []
+        for uv_list in all_uv_coordinates:
+            combined_uv_coords.extend(uv_list)
+        
+        # Combine materials
+        combined_materials = []
+        for material_list in all_materials:
+            combined_materials.extend(material_list)
+            
+        print(f"DEBUG: Extracted {len(combined_uv_coords)} UV coordinates")
+        print(f"DEBUG: Extracted {len(combined_materials)} materials")
+        
     else:
         vertices = np.array([])
         vertex_normals = np.array([])
         faces = np.array([])
         face_normals = np.array([])
+        combined_uv_coords = []
+        combined_materials = []
     
     print(f"DEBUG: Processed {len(vertices)} vertices, {len(faces)} faces")
-    print("DEBUG: Exiting process_mesh")
+    print("DEBUG: Exiting process_mesh with texture preservation")
     
-    return vertices, vertex_normals, faces, face_normals
+    return vertices, vertex_normals, faces, face_normals, combined_uv_coords, combined_materials
 
 
 def process_armature(armature, num_vertices=0):
@@ -493,9 +553,10 @@ def process_armature(armature, num_vertices=0):
 
 
 def save_raw_data(output_dir, vertices, vertex_normals, faces, face_normals, 
-                 joints, tails, skin, no_skin, parents, names, matrix_local):
-    """Save processed data to NPZ file."""
-    print("DEBUG: Entering save_raw_data")
+                 joints, tails, skin, no_skin, parents, names, matrix_local, 
+                 uv_coords=None, materials=None):
+    """Save processed data to NPZ file with texture information."""
+    print("DEBUG: Entering save_raw_data with texture preservation")
     
     os.makedirs(output_dir, exist_ok=True)
     
@@ -511,7 +572,9 @@ def save_raw_data(output_dir, vertices, vertex_normals, faces, face_normals,
         no_skin=no_skin,
         parents=parents,
         names=names,
-        matrix_local=matrix_local
+        matrix_local=matrix_local,
+        uv_coords=uv_coords or [],
+        materials=materials or []
     )
     
     # Save to NPZ file
@@ -567,8 +630,9 @@ def extract_builtin(config_dict, model_path, output_dir, log_path=None, log_name
         # Process mesh data
         print("DEBUG: Processing mesh data...")
         try:
-            vertices, vertex_normals, faces, face_normals = process_mesh(objects)
+            vertices, vertex_normals, faces, face_normals, uv_coords, materials = process_mesh(objects)
             print(f"DEBUG: Processed mesh data - vertices: {len(vertices)}, faces: {len(faces)}")
+            print(f"DEBUG: UV coordinates: {len(uv_coords)}, materials: {len(materials)}")
         except Exception as mesh_error:
             print(f"DEBUG: Error processing mesh: {mesh_error}")
             print(f"DEBUG: Traceback: {traceback.format_exc()}")
@@ -589,12 +653,47 @@ def extract_builtin(config_dict, model_path, output_dir, log_path=None, log_name
         print("DEBUG: Saving processed data...")
         try:
             save_raw_data(output_dir, vertices, vertex_normals, faces, face_normals,
-                         joints, tails, skin, no_skin, parents, names, matrix_local)
+                         joints, tails, skin, no_skin, parents, names, matrix_local,
+                         uv_coords, materials)
             print("DEBUG: Data saved successfully")
         except Exception as save_error:
             print(f"DEBUG: Error saving data: {save_error}")
             print(f"DEBUG: Traceback: {traceback.format_exc()}")
             raise
+        
+        # Save texture files alongside NPZ data - CRITICAL for Step 1 texture preservation
+        print("DEBUG: Saving texture files...")
+        try:
+            model_name = os.path.splitext(os.path.basename(model_path))[0]
+            saved_textures = save_texture_files(output_dir, model_name)
+            print(f"DEBUG: Successfully saved {len(saved_textures)} texture files: {saved_textures}")
+            
+            # Update material metadata with saved texture filepaths for Blender Native Flow
+            for material in materials:
+                for texture in material.get('textures', []):
+                    texture_name = texture['name']
+                    # Find saved texture file with matching name
+                    for saved_texture in saved_textures:
+                        if texture_name == saved_texture.get('original_name'):
+                            texture['filepath'] = saved_texture.get('relative_path', '')
+                            print(f"DEBUG: Updated texture filepath: {texture_name} -> {texture['filepath']}")
+                            break
+                    else:
+                        print(f"WARNING: No saved texture file found for {texture_name}")
+                        
+        except Exception as texture_error:
+            print(f"DEBUG: Error in texture handling: {texture_error}")
+            # Don't raise - texture handling is optional
+            
+        # Re-save NPZ data with updated material metadata containing texture filepaths
+        print("DEBUG: Re-saving NPZ data with updated texture filepaths...")
+        try:
+            save_raw_data(output_dir, vertices, vertex_normals, faces, face_normals,
+                         joints, tails, skin, no_skin, parents, names, matrix_local,
+                         uv_coords, materials)
+            print("DEBUG: NPZ data re-saved with updated texture metadata")
+        except Exception as resave_error:
+            print(f"DEBUG: Error re-saving NPZ data: {resave_error}")
         
         # Log completion
         if log_path and log_name:
@@ -1039,5 +1138,91 @@ def process_armature_for_merge(armature, arranged_bones):
     return joints, tails, parents, names, matrix_local_stack
 
 
+def save_texture_files(output_dir, model_name):
+    """Save texture files alongside NPZ data."""
+    texture_dir = os.path.join(output_dir, "textures")
+    os.makedirs(texture_dir, exist_ok=True)
+    
+    saved_textures = []
+    
+    try:
+        # Save all images from Blender
+        for image in bpy.data.images:
+            if image.name and image.filepath:
+                # Get original file extension
+                original_path = image.filepath
+                if original_path.startswith("//"):
+                    original_path = bpy.path.abspath(original_path)
+                
+                if os.path.exists(original_path):
+                    # Create safe filename
+                    safe_name = "".join(c for c in image.name if c.isalnum() or c in (' ', '-', '_', '.')).rstrip()
+                    if not safe_name:
+                        safe_name = f"texture_{len(saved_textures)}"
+                    
+                    # Preserve original extension
+                    original_ext = os.path.splitext(original_path)[1]
+                    if not safe_name.endswith(original_ext):
+                        safe_name += original_ext
+                    
+                    target_path = os.path.join(texture_dir, safe_name)
+                    
+                    # Copy texture file
+                    try:
+                        shutil.copy2(original_path, target_path)
+                        saved_textures.append({
+                            'original_name': image.name,
+                            'original_path': original_path,
+                            'saved_path': target_path,
+                            'relative_path': os.path.relpath(target_path, output_dir)
+                        })
+                        print(f"DEBUG: Saved texture: {image.name} -> {target_path}")
+                    except Exception as e:
+                        print(f"DEBUG: Failed to copy texture {image.name}: {e}")
+            elif image.name and image.packed_file:
+                # Handle packed images
+                safe_name = "".join(c for c in image.name if c.isalnum() or c in (' ', '-', '_', '.')).rstrip()
+                if not safe_name:
+                    safe_name = f"packed_texture_{len(saved_textures)}"
+                
+                # Determine format from image data or use PNG as default
+                if not safe_name.lower().endswith(('.png', '.jpg', '.jpeg', '.tga', '.bmp')):
+                    safe_name += '.png'
+                
+                target_path = os.path.join(texture_dir, safe_name)
+                
+                try:
+                    # Save packed image
+                    image.save_render(filepath=target_path)
+                    saved_textures.append({
+                        'original_name': image.name,
+                        'original_path': 'packed',
+                        'saved_path': target_path,
+                        'relative_path': os.path.relpath(target_path, output_dir)
+                    })
+                    print(f"DEBUG: Saved packed texture: {image.name} -> {target_path}")
+                except Exception as e:
+                    print(f"DEBUG: Failed to save packed texture {image.name}: {e}")
+    
+    except Exception as e:
+        print(f"DEBUG: Error in save_texture_files: {e}")
+    
+    # Save texture manifest
+    if saved_textures:
+        manifest_path = os.path.join(output_dir, "texture_manifest.yaml")
+        try:
+            with open(manifest_path, 'w') as f:
+                yaml.dump({
+                    'model_name': model_name,
+                    'texture_count': len(saved_textures),
+                    'textures': saved_textures
+                }, f, default_flow_style=False)
+            print(f"DEBUG: Saved texture manifest: {manifest_path}")
+        except Exception as e:
+            print(f"DEBUG: Failed to save texture manifest: {e}")
+    
+    return saved_textures
+
+# Call main function when script is executed directly
 if __name__ == "__main__":
     main()
