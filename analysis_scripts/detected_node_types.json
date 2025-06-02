@@ -1,0 +1,28 @@
+{
+  "available_types": {
+    "ShaderNodeBsdfPrincipled": "ShaderNodeBsdfPrincipled",
+    "ShaderNodeTexImage": "ShaderNodeTexImage",
+    "ShaderNodeOutputMaterial": "ShaderNodeOutputMaterial",
+    "ShaderNodeMix": "ShaderNodeMix",
+    "ShaderNodeMixRGB": "ShaderNodeMixRGB",
+    "ShaderNodeSeparateColor": "ShaderNodeSeparateColor",
+    "ShaderNodeSeparateRGB": "ShaderNodeSeparateRGB",
+    "ShaderNodeNormalMap": "ShaderNodeNormalMap",
+    "ShaderNodeVertexColor": "ShaderNodeVertexColor",
+    "ShaderNodeAttribute": "ShaderNodeAttribute",
+    "ShaderNodeMath": "ShaderNodeMath",
+    "ShaderNodeMapping": "ShaderNodeMapping",
+    "ShaderNodeTexCoord": "ShaderNodeTexCoord"
+  },
+  "normalized_mapping": {
+    "BSDF_PRINCIPLED": "ShaderNodeBsdfPrincipled",
+    "TEX_IMAGE": "ShaderNodeTexImage",
+    "OUTPUT_MATERIAL": "ShaderNodeOutputMaterial",
+    "MIX": "ShaderNodeMix",
+    "SEPARATE_COLOR": "ShaderNodeSeparateColor",
+    "NORMAL_MAP": "ShaderNodeNormalMap",
+    "VERTEX_COLOR": "ShaderNodeVertexColor",
+    "MATH": "ShaderNodeMath"
+  },
+  "blender_version": "4.2.0"
+}
