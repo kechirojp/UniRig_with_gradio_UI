@@ -8,14 +8,14 @@ import os
 import time
 
 # Gradio APIエンドポイント
-BASE_URL = "http://127.0.0.1:7860"
+BASE_URL = "http://127.0.0.1:7862"
 API_ENDPOINT = f"{BASE_URL}/gradio_api/gradio_full_auto_rigging"
 
 def test_auto_rigging():
     """自動リギング機能をテスト"""
     
     # テスト用モデルファイル
-    test_model_path = "/app/examples/tira.glb"
+    test_model_path = "/app/examples/bird.glb"
     
     if not os.path.exists(test_model_path):
         print(f"❌ テストモデルが見つかりません: {test_model_path}")
@@ -27,7 +27,7 @@ def test_auto_rigging():
     
     # まずファイルをアップロード
     files = {
-        'files': ('tira.glb', open(test_model_path, 'rb'), 'model/gltf-binary')
+        'files': ('bird.glb', open(test_model_path, 'rb'), 'model/gltf-binary')
     }
     
     try:
@@ -50,7 +50,7 @@ def test_auto_rigging():
                 {
                     "path": file_path,
                     "url": f"{BASE_URL}/file={file_path}",
-                    "orig_name": "tira.glb",
+                    "orig_name": "bird.glb",
                     "meta": {"_type": "gradio.FileData"}
                 },
                 "neutral"  # gender parameter

@@ -17,7 +17,7 @@ def test_skinning():
     
     # Input files from previous steps
     raw_data_npz_path = "/app/pipeline_work/01_extracted_mesh/bird/raw_data.npz"
-    skeleton_fbx_path = "/app/pipeline_work/02_skeleton_output/bird/skeleton.fbx"
+    skeleton_fbx_path = "/app/pipeline_work/01_extracted_mesh/bird/skeleton.fbx"
     skeleton_npz_path = "/app/pipeline_work/01_extracted_mesh/bird/predict_skeleton.npz"
     model_name = "bird"
     
