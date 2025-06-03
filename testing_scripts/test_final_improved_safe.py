@@ -53,8 +53,8 @@ def test_improved_safe_final():
         
         start_time = time.time()
         extract_npz_path, extract_logs = process_extract_mesh(
-            original_model_path=input_glb,
-            model_name_for_output=model_name,
+            uploaded_model_path=input_glb,
+            model_name=model_name,
             progress_fn=progress_callback
         )
         extract_time = time.time() - start_time
@@ -89,15 +89,15 @@ def test_improved_safe_final():
         start_time = time.time()
         skeleton_results = process_generate_skeleton(
             extracted_npz_path=extract_npz_path,
-            model_name_for_output=model_name,
+            model_name=model_name,
             gender="male",  # Default
             progress_fn=progress_callback
         )
         skeleton_time = time.time() - start_time
         
         # Handle skeleton function return format
-        if len(skeleton_results) == 3:
-            skeleton_fbx_path, skeleton_npz_path, skeleton_logs = skeleton_results
+        if len(skeleton_results) == 5:
+            display_path, skeleton_logs, skeleton_fbx_path, skeleton_txt_path, skeleton_npz_path = skeleton_results
         else:
             print(f"❌ Step 2 failed: Unexpected return format")
             return False
@@ -124,11 +124,14 @@ def test_improved_safe_final():
         )
         skinning_time = time.time() - start_time
         
-        # Handle skinning function return format
-        if len(skinning_results) == 3:
-            skinned_fbx_path, skinning_npz_path, skinning_logs = skinning_results
+        # Handle skinning function return format (フォールバックモードでは4つの値を返す)
+        if len(skinning_results) == 4:
+            display_glb_path, skinning_logs, skinned_fbx_path, skinning_npz_path = skinning_results
+        elif len(skinning_results) == 2:
+            skinned_fbx_path, skinning_logs = skinning_results
+            skinning_npz_path = None
         else:
-            print(f"❌ Step 3 failed: Unexpected return format")
+            print(f"❌ Step 3 failed: Unexpected return format (received {len(skinning_results)} values)")
             return False
         
         if not skinned_fbx_path:
@@ -138,6 +141,10 @@ def test_improved_safe_final():
         
         print(f"✅ Step 3 completed in {skinning_time:.2f}s")
         print(f"📁 Skinned FBX: {skinned_fbx_path}")
+        if skinning_npz_path:
+            print(f"📁 Skinning NPZ: {skinning_npz_path}")
+        else:
+            print(f"⚠️ Skinning NPZ not generated (fallback mode)")
         
         # Step 4: Final merge with ImprovedSafeTextureRestoration
         print(f"\n🔄 Step 4: Final Merge with ImprovedSafeTextureRestoration")
