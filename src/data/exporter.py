@@ -373,7 +373,7 @@ class Exporter():
             tails=tails,
         )
         
-        # Export FBX with embedded textures and materials
+        # Export FBX with embedded textures and materials (Binary format - default in Blender 4.2+)
         bpy.ops.export_scene.fbx(
             filepath=path, 
             check_existing=False, 
@@ -385,7 +385,10 @@ class Exporter():
             use_mesh_modifiers=True,
             use_custom_props=True,
             # Animation settings (if needed)
-            bake_anim=False
+            bake_anim=False,
+            # Mesh quality settings
+            use_tspace=True,  # Use tangent space for normal maps
+            mesh_smooth_type='OFF'  # Preserve original smoothing
         )
     
     def _export_render(

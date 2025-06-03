@@ -850,16 +850,35 @@ def transfer(source: str, target: str, output: str, add_root: bool=False):
             print(f"✅ Found YAML manifest for ImprovedSafeTextureRestoration: {yaml_manifest_path}")
             
             try:
-                # Initialize ImprovedSafeTextureRestoration
-                improved_safe_flow = ImprovedSafeTextureRestoration()
+                # Initialize ImprovedSafeTextureRestoration with correct parameters
+                working_dir = os.path.dirname(output)  # Use directory containing the FBX
+                base_working_dir = os.path.dirname(os.path.dirname(working_dir))  # Go up to pipeline_work level
+                
+                improved_safe_flow = ImprovedSafeTextureRestoration(
+                    working_dir=base_working_dir,
+                    model_name=model_name,
+                    use_subprocess=True
+                )
                 
                 # Execute 6-stage improved safe flow
-                safe_result = improved_safe_flow.process_skinned_fbx_with_yaml_manifest(
-                    skinned_fbx_path=output,  # Use the FBX just created by merge()
-                    yaml_manifest_path=yaml_manifest_path,
-                    model_name=model_name,
-                    progress_callback=lambda progress, desc: print(f"ImprovedSafeFlow: {progress:.1%} - {desc}")
+                success, final_fbx_path, quality_report = improved_safe_flow.execute_full_restoration(
+                    skinned_fbx_path=output  # Use the FBX just created by merge()
                 )
+                
+                # Process results
+                if success and final_fbx_path and os.path.exists(final_fbx_path):
+                    safe_result = {
+                        'success': True,
+                        'final_fbx_path': final_fbx_path,
+                        'quality_report': quality_report,
+                        'logs': f"ImprovedSafeTextureRestoration completed successfully!\nFinal FBX: {final_fbx_path}"
+                    }
+                else:
+                    safe_result = {
+                        'success': False,
+                        'error_message': "ImprovedSafeTextureRestoration failed to complete",
+                        'quality_report': quality_report if 'quality_report' in locals() else {}
+                    }
                 
                 if safe_result['success']:
                     print("✅ ImprovedSafeTextureRestoration completed successfully!")

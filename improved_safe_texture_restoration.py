@@ -101,13 +101,21 @@ class ImprovedSafeTextureRestoration:
         """
         print("📥 Stage 1: Safe FBX Import")
         
-        # Find skinned FBX
-        skinned_fbx = self.skinning_dir / "skinned_model.fbx"
-        if not skinned_fbx.exists():
+        # Use custom skinned FBX path if provided, otherwise look for default
+        if hasattr(self, 'custom_skinned_fbx_path') and self.custom_skinned_fbx_path:
+            skinned_fbx = self.custom_skinned_fbx_path
+        else:
+            skinned_fbx = self.skinning_dir / "skinned_model.fbx"
+        
+        if not os.path.exists(skinned_fbx):
             print(f"❌ Skinned FBX not found: {skinned_fbx}")
             return False
         
         print(f"📂 Importing: {skinned_fbx}")
+        
+        # Convert paths to strings for Blender script compatibility
+        skinned_fbx_str = str(skinned_fbx).replace('\\', '/')
+        stage1_blend_str = str(self.stage1_blend).replace('\\', '/')
         
         script_content = f'''
 import bpy
@@ -120,7 +128,7 @@ def safe_import_fbx():
         
         # Import FBX with armature preservation
         bpy.ops.import_scene.fbx(
-            filepath="{skinned_fbx}",
+            filepath="{skinned_fbx_str}",
             use_image_search=False,
             use_anim=True,
             ignore_leaf_bones=False,
@@ -134,7 +142,7 @@ def safe_import_fbx():
         print(f"📊 Materials: {{len(bpy.data.materials)}}")
         
         # Save workspace
-        bpy.ops.wm.save_as_mainfile(filepath="{self.stage1_blend}")
+        bpy.ops.wm.save_as_mainfile(filepath="{stage1_blend_str}")
         print(f"✅ Stage 1 complete: {{len(bpy.data.objects)}} objects imported")
         return True
         
@@ -192,15 +200,28 @@ else:
             for texture_info in manifest_data.get('textures', []):
                 texture_name = texture_info['original_name']
                 texture_path = Path(texture_info['saved_path'])
+                texture_type = texture_info.get('type', 'UNKNOWN')
+                
+                # Ensure texture type is uppercase and consistent
+                if texture_type.lower() == 'basecolor':
+                    texture_type = 'BASE_COLOR'
+                elif texture_type.lower() == 'normal':
+                    texture_type = 'NORMAL'
+                elif texture_type.lower() == 'metallicroughness' or texture_type.lower() == 'metallic_roughness':
+                    texture_type = 'METALLIC_ROUGHNESS'
+                elif texture_type.lower() == 'roughness':
+                    texture_type = 'ROUGHNESS'
+                elif texture_type.lower() == 'metallic':
+                    texture_type = 'METALLIC'
                 
                 if texture_path.exists():
                     file_size = texture_path.stat().st_size / (1024 * 1024)
                     texture_files[texture_name] = {
                         'path': str(texture_path),
                         'size_mb': file_size,
-                        'type': self._detect_texture_type(texture_name)
+                        'type': texture_type
                     }
-                    print(f"   ✅ {texture_name} ({file_size:.2f} MB) - {texture_files[texture_name]['type']}")
+                    print(f"   ✅ {texture_name} ({file_size:.2f} MB) - {texture_type}")
                 else:
                     print(f"   ❌ {texture_name} - File not found")
             
@@ -221,14 +242,16 @@ else:
     def _detect_texture_type(self, texture_name: str) -> str:
         """テクスチャ名からタイプを推測"""
         name_lower = texture_name.lower()
-        if '_col_' in name_lower or '_bc' in name_lower or '_base' in name_lower:
+        if any(pattern in name_lower for pattern in ['_col_', '_bc', '_base', '_diffuse', '_albedo', 'basecolor']):
             return 'BASE_COLOR'
-        elif '_nrml' in name_lower or '_n' in name_lower or '_normal' in name_lower:
+        elif any(pattern in name_lower for pattern in ['_nrml', '_n', '_normal', 'normal']):
             return 'NORMAL'
-        elif '_gloss' in name_lower or '_r' in name_lower or '_rough' in name_lower:
+        elif any(pattern in name_lower for pattern in ['_gloss', '_r', '_rough', 'roughness']):
             return 'ROUGHNESS'
-        elif '_metal' in name_lower or '_m' in name_lower:
+        elif any(pattern in name_lower for pattern in ['_metal', '_m', 'metallic']):
             return 'METALLIC'
+        elif any(pattern in name_lower for pattern in ['metallicroughness', 'metallic_roughness', '_mr']):
+            return 'METALLIC_ROUGHNESS'
         else:
             return 'UNKNOWN'
     
@@ -240,6 +263,10 @@ else:
         
         texture_files = texture_data['texture_files']
         
+        # Convert paths to strings for Blender script compatibility
+        stage1_blend_str = str(self.stage1_blend).replace('\\', '/')
+        stage3_blend_str = str(self.stage3_blend).replace('\\', '/')
+        
         script_content = f'''
 import bpy
 import os
@@ -247,7 +274,7 @@ import os
 def reconstruct_complete_materials():
     try:
         # Load workspace
-        bpy.ops.wm.open_mainfile(filepath="{self.stage1_blend}")
+        bpy.ops.wm.open_mainfile(filepath="{stage1_blend_str}")
         
         # Clear existing materials (if any)
         for mat in list(bpy.data.materials):
@@ -314,6 +341,15 @@ def reconstruct_complete_materials():
                     elif tex_type == 'METALLIC':
                         links.new(tex_node.outputs['Color'], principled.inputs['Metallic'])
                         print(f"   🔗 Connected to Metallic")
+                    elif tex_type == 'METALLIC_ROUGHNESS':
+                        # Create Separate Color node for metallicRoughness texture (Blender 3.0+ compatible)
+                        separate_node = nodes.new(type='ShaderNodeSeparateColor')
+                        separate_node.location = (-200, y_offset)
+                        links.new(tex_node.outputs['Color'], separate_node.inputs['Color'])
+                        # Green channel = Roughness, Blue channel = Metallic (glTF standard)
+                        links.new(separate_node.outputs['Green'], principled.inputs['Roughness'])
+                        links.new(separate_node.outputs['Blue'], principled.inputs['Metallic'])
+                        print(f"   🔗 Connected to Metallic (Blue) and Roughness (Green)")
                     else:
                         print(f"   ⚠️ Unknown texture type: {{tex_type}}")
                     
@@ -336,7 +372,7 @@ def reconstruct_complete_materials():
                 print(f"🎨 Material assigned to: {{obj.name}}")
         
         # Save workspace
-        bpy.ops.wm.save_as_mainfile(filepath="{self.stage3_blend}")
+        bpy.ops.wm.save_as_mainfile(filepath="{stage3_blend_str}")
         
         print(f"✅ Stage 3 complete: {{len(texture_nodes)}} textures, {{assigned_count}} objects")
         return True
@@ -377,13 +413,17 @@ else:
         """
         print("🔗 Stage 4: Material Assignment & Validation")
         
+        # Convert paths to strings for Blender script compatibility
+        stage3_blend_str = str(self.stage3_blend).replace('\\', '/')
+        stage4_blend_str = str(self.stage4_blend).replace('\\', '/')
+        
         script_content = f'''
 import bpy
 
 def validate_material_assignment():
     try:
         # Load workspace
-        bpy.ops.wm.open_mainfile(filepath="{self.stage3_blend}")
+        bpy.ops.wm.open_mainfile(filepath="{stage3_blend_str}")
         
         # Validate material connections
         validation_passed = True
@@ -417,14 +457,40 @@ def validate_material_assignment():
             base_color_connected = bool(principled.inputs['Base Color'].links)
             normal_connected = bool(principled.inputs['Normal'].links)
             roughness_connected = bool(principled.inputs['Roughness'].links)
+            metallic_connected = bool(principled.inputs['Metallic'].links)
             
             print(f"   🔗 Base Color: {{'✅' if base_color_connected else '❌'}}")
             print(f"   🔗 Normal: {{'✅' if normal_connected else '❌'}}")
             print(f"   🔗 Roughness: {{'✅' if roughness_connected else '❌'}}")
+            print(f"   🔗 Metallic: {{'✅' if metallic_connected else '❌'}}")
             
-            if not (base_color_connected or normal_connected or roughness_connected):
+            # Detailed connection analysis
+            connection_count = 0
+            if base_color_connected:
+                from_node = principled.inputs['Base Color'].links[0].from_node
+                print(f"       Base Color ← {{from_node.name}} ({{from_node.type}})")
+                connection_count += 1
+            if normal_connected:
+                from_node = principled.inputs['Normal'].links[0].from_node
+                print(f"       Normal ← {{from_node.name}} ({{from_node.type}})")
+                connection_count += 1
+            if roughness_connected:
+                from_node = principled.inputs['Roughness'].links[0].from_node
+                print(f"       Roughness ← {{from_node.name}} ({{from_node.type}})")
+                connection_count += 1
+            if metallic_connected:
+                from_node = principled.inputs['Metallic'].links[0].from_node
+                print(f"       Metallic ← {{from_node.name}} ({{from_node.type}})")
+                connection_count += 1
+            
+            print(f"   📊 Total connections: {{connection_count}}/4")
+            
+            # At least one connection should exist for material to be valid
+            if not (base_color_connected or normal_connected or roughness_connected or metallic_connected):
                 print(f"   ❌ No critical connections found")
                 validation_passed = False
+            else:
+                print(f"   ✅ Material connections validated ({{connection_count}} connections)")
         
         # Check mesh assignments
         mesh_with_materials = 0
@@ -439,7 +505,7 @@ def validate_material_assignment():
         
         # Save validated workspace
         if validation_passed:
-            bpy.ops.wm.save_as_mainfile(filepath="{self.stage4_blend}")
+            bpy.ops.wm.save_as_mainfile(filepath="{stage4_blend_str}")
         
         print(f"🔗 Validation result: {{'PASSED' if validation_passed else 'FAILED'}}")
         print(f"🔗 Meshes with materials: {{mesh_with_materials}}")
@@ -482,6 +548,10 @@ else:
         """
         print("📤 Stage 5: Optimized FBX Export")
         
+        # Convert paths to strings for Blender script compatibility
+        stage4_blend_str = str(self.stage4_blend).replace('\\', '/')
+        final_fbx_str = str(self.final_fbx).replace('\\', '/')
+        
         script_content = f'''
 import bpy
 import os
@@ -489,7 +559,7 @@ import os
 def optimized_fbx_export():
     try:
         # Load final workspace
-        bpy.ops.wm.open_mainfile(filepath="{self.stage4_blend}")
+        bpy.ops.wm.open_mainfile(filepath="{stage4_blend_str}")
         
         # Force pack all textures
         packed_count = 0
@@ -508,11 +578,13 @@ def optimized_fbx_export():
         print(f"📦 Total packed images: {{packed_count}}")
         
         # Ensure output directory exists
-        os.makedirs(os.path.dirname("{self.final_fbx}"), exist_ok=True)
+        output_dir = os.path.dirname("{final_fbx_str}")
+        if output_dir:
+            os.makedirs(output_dir, exist_ok=True)
         
-        # Export FBX with enhanced texture embedding
+        # Export FBX with enhanced texture embedding (Binary format - default in Blender 4.2+)
         bpy.ops.export_scene.fbx(
-            filepath="{self.final_fbx}",
+            filepath="{final_fbx_str}",
             # Selection and objects
             use_selection=False,
             object_types={{'MESH', 'ARMATURE'}},
@@ -538,8 +610,8 @@ def optimized_fbx_export():
         )
         
         # Verify export
-        if os.path.exists("{self.final_fbx}"):
-            file_size = os.path.getsize("{self.final_fbx}")
+        if os.path.exists("{final_fbx_str}"):
+            file_size = os.path.getsize("{final_fbx_str}")
             file_size_mb = file_size / (1024 * 1024)
             print(f"✅ FBX exported: {{file_size_mb:.2f}} MB")
             
