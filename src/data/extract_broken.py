@@ -100,21 +100,21 @@ if not raw_data_imported:
             self.skin = skin
             self.no_skin = no_skin
             self.parents = parents
-                    self.names = names
-                    self.matrix_local = matrix_local
+            self.names = names
+            self.matrix_local = matrix_local
                 
-                def check(self):
-                    # Minimal validation
-                    if self.parents is not None:
-                        for i, pid in enumerate(self.parents):
-                            if i == 0:
-                                assert pid is None
-                            else:
-                                assert pid is not None
-                                assert pid < i
+        def check(self):
+            # Minimal validation
+            if self.parents is not None:
+                for i, pid in enumerate(self.parents):
+                    if i == 0:
+                        assert pid is None
+                    else:
+                        assert pid is not None
+                        assert pid < i
                 
-                def save(self, path):
-                    np.savez_compressed(
+        def save(self, path):
+            np.savez_compressed(
                         path,
                         vertices=self.vertices,
                         vertex_normals=self.vertex_normals,
@@ -196,11 +196,17 @@ def load(filepath: str):
 # remove all data in bpy
 def clean_bpy():
     print("DEBUG: Entering clean_bpy")
-    if bpy.context.object and bpy.context.object.mode != 'OBJECT':
-        try:
-            bpy.ops.object.mode_set(mode='OBJECT')
-        except Exception as e:
-            print(f"DEBUG: clean_bpy - Error setting mode to OBJECT: {e}")
+    # Blender 4.2 compatible active object check
+    try:
+        active_obj = bpy.context.view_layer.objects.active
+        if active_obj and active_obj.mode != 'OBJECT':
+            try:
+                bpy.ops.object.mode_set(mode='OBJECT')
+            except Exception as e:
+                print(f"DEBUG: clean_bpy - Error setting mode to OBJECT: {e}")
+    except AttributeError:
+        # bpy.context.object not available in Blender 4.2
+        pass
     try:
         bpy.ops.object.select_all(action='DESELECT')
     except Exception as e:

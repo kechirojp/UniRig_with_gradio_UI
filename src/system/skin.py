@@ -18,6 +18,7 @@ from ..data.order import OrderConfig, get_order
 from ..data.raw_data import RawSkin, RawData
 from ..data.exporter import Exporter
 from ..model.spec import ModelSpec
+from ..model.cpu_skinning_system import create_cpu_skinning_fallback, compute_distance_based_weights
 from pathlib import Path
 # from src.utils.fs import FileSystem # Not used directly
 
@@ -405,6 +406,16 @@ class SkinWriter(BasePredictionWriter):
                         cls=raw_data.cls
                     )
                     # Use RawData's export_fbx method directly
+                    # 🚨 CRITICAL: セグメンテーションフォルト防止チェック
+                    import os
+                    force_fallback = os.environ.get('FORCE_FALLBACK_MODE', '0') == '1'
+                    disable_lightning = os.environ.get('DISABLE_UNIRIG_LIGHTNING', '0') == '1'
+                    
+                    if force_fallback or disable_lightning:
+                        logger.warning("🛡️ セグメンテーションフォルト防止: RawData.export_fbx() 呼び出しをスキップ")
+                        logger.warning(f"   FORCE_FALLBACK_MODE={force_fallback}, DISABLE_UNIRIG_LIGHTNING={disable_lightning}")
+                        raise RuntimeError("Segmentation fault prevention: Skipping RawData.export_fbx() to prevent memory crash")
+                    
                     raw_data_with_skin.export_fbx(path=str(fbx_path))
                     logger.info(f"Successfully exported FBX to: '{fbx_path}'")
                 except Exception as e:

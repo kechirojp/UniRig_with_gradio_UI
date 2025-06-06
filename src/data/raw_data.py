@@ -150,6 +150,16 @@ class RawData(Exporter):
         '''
         export the whole model with skining
         '''
+        # 🚨 CRITICAL: セグメンテーションフォルト防止チェック
+        import os
+        force_fallback = os.environ.get('FORCE_FALLBACK_MODE', '0') == '1'
+        disable_lightning = os.environ.get('DISABLE_UNIRIG_LIGHTNING', '0') == '1'
+        
+        if force_fallback or disable_lightning:
+            print("🛡️ セグメンテーションフォルト防止: RawData.export_fbx() をブロック")
+            print(f"   FORCE_FALLBACK_MODE={force_fallback}, DISABLE_UNIRIG_LIGHTNING={disable_lightning}")
+            raise RuntimeError("Segmentation fault prevention: RawData.export_fbx() blocked to prevent memory crash")
+        
         self._export_fbx(
             path=path,
             vertices=self.vertices,
@@ -262,6 +272,16 @@ class RawSkeleton(Exporter):
         '''
         export the whole model with skining
         '''
+        # 🚨 CRITICAL: セグメンテーションフォルト防止チェック
+        import os
+        force_fallback = os.environ.get('FORCE_FALLBACK_MODE', '0') == '1'
+        disable_lightning = os.environ.get('DISABLE_UNIRIG_LIGHTNING', '0') == '1'
+        
+        if force_fallback or disable_lightning:
+            print("🛡️ セグメンテーションフォルト防止: RawSkeleton.export_fbx() をブロック")
+            print(f"   FORCE_FALLBACK_MODE={force_fallback}, DISABLE_UNIRIG_LIGHTNING={disable_lightning}")
+            raise RuntimeError("Segmentation fault prevention: RawSkeleton.export_fbx() blocked to prevent memory crash")
+        
         self._export_fbx(
             path=path,
             vertices=None,

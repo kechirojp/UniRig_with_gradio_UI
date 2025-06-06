@@ -260,12 +260,17 @@ def clean_bpy():
     """Remove all data in bpy with comprehensive cleanup."""
     print("DEBUG: Entering clean_bpy")
     try:
-        # Ensure we're in object mode
-        if bpy.context.object and bpy.context.object.mode != 'OBJECT':
-            try:
-                bpy.ops.object.mode_set(mode='OBJECT')
-            except:
-                pass
+        # Ensure we're in object mode - Blender 4.2 compatible
+        try:
+            active_obj = bpy.context.view_layer.objects.active
+            if active_obj and active_obj.mode != 'OBJECT':
+                try:
+                    bpy.ops.object.mode_set(mode='OBJECT')
+                except:
+                    pass
+        except AttributeError:
+            # bpy.context.object not available in Blender 4.2
+            pass
         
         # Clear selection and delete all objects
         try:

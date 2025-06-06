@@ -720,25 +720,56 @@ def merge(
                 if obj.type in ['MESH', 'ARMATURE']:
                     obj.select_set(True)
             
-            bpy.ops.export_scene.gltf(
-                filepath=output_path,
-                use_selection=False,  # Export all objects
-                export_format='GLB' if output_path.endswith('.glb') else 'GLTF_EMBEDDED',
-                # Texture and material embedding
-                export_materials='EXPORT',  # Export materials with textures
-                export_colors=True,  # Export vertex colors
-                # Image format settings
-                export_image_format='AUTO',  # Use original format when possible
-                export_jpeg_quality=90,  # High quality for JPEG textures
-                # Mesh settings
-                export_normals=True,
-                export_tangents=False,
-                export_tex_coords=True,  # Essential for UV mapping
-                export_attributes=True,  # Export custom attributes
-                # Compression settings
-                export_draco_mesh_compression_enable=False,  # Disable compression to preserve quality
-                # Animation settings
-                export_animations=False,  # Disable for static models
+            # Use Blender 4.2 context override for safe GLTF export
+            try:
+                from blender_42_context_fix import Blender42ContextManager
+                context_mgr = Blender42ContextManager()
+                
+                success = context_mgr.safe_gltf_export_with_context_override(
+                    filepath=output_path,
+                    use_selection=False,  # Export all objects
+                    export_format='GLB' if output_path.endswith('.glb') else 'GLTF_EMBEDDED',
+                    # Texture and material embedding
+                    export_materials='EXPORT',  # Export materials with textures
+                    export_colors=True,  # Export vertex colors
+                    # Image format settings
+                    export_image_format='AUTO',  # Use original format when possible
+                    export_jpeg_quality=90,  # High quality for JPEG textures
+                    # Mesh settings
+                    export_normals=True,
+                    export_tangents=False,
+                    export_tex_coords=True,  # Essential for UV mapping
+                    export_attributes=True,  # Export custom attributes
+                    # Compression settings
+                    export_draco_mesh_compression_enable=False,  # Disable compression to preserve quality
+                    # Animation settings
+                    export_animations=False,  # Disable for static models
+                )
+                
+                if not success:
+                    raise Exception("GLTF export failed with context error")
+                    
+            except ImportError as e:
+                print(f"Warning: Context manager not available, using fallback: {e}")
+                bpy.ops.export_scene.gltf(
+                    filepath=output_path,
+                    use_selection=False,  # Export all objects
+                    export_format='GLB' if output_path.endswith('.glb') else 'GLTF_EMBEDDED',
+                    # Texture and material embedding
+                    export_materials='EXPORT',  # Export materials with textures
+                    export_colors=True,  # Export vertex colors
+                    # Image format settings
+                    export_image_format='AUTO',  # Use original format when possible
+                    export_jpeg_quality=90,  # High quality for JPEG textures
+                    # Mesh settings
+                    export_normals=True,
+                    export_tangents=False,
+                    export_tex_coords=True,  # Essential for UV mapping
+                    export_attributes=True,  # Export custom attributes
+                    # Compression settings
+                    export_draco_mesh_compression_enable=False,  # Disable compression to preserve quality
+                    # Animation settings
+                    export_animations=False,  # Disable for static models
                 export_frame_range=False,
                 # Other settings
                 export_apply=False,  # Don't apply modifiers
