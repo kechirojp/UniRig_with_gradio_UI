@@ -1,0 +1,1 @@
+/app/pipeline_work_fixed/01_extract/raw_data.npz

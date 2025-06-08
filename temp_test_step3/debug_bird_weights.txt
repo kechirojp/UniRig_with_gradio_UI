@@ -1,0 +1,17 @@
+# Skinning Weight Information
+# Vertex count: 7702
+# Bone count: 42
+# Skinning method: linear_blend_skinning
+# Max influences per vertex: 4
+
+vertex_0000: bone_19=0.261 bone_21=0.252 bone_40=0.250 bone_33=0.237 
+vertex_0001: bone_36=0.255 bone_00=0.254 bone_17=0.253 bone_18=0.237 
+vertex_0002: bone_24=0.257 bone_19=0.250 bone_11=0.249 bone_06=0.244 
+vertex_0003: bone_19=0.264 bone_16=0.250 bone_26=0.246 bone_27=0.239 
+vertex_0004: bone_12=0.257 bone_30=0.255 bone_20=0.254 bone_37=0.235 
+vertex_0005: bone_26=0.280 bone_11=0.262 bone_05=0.230 bone_32=0.228 
+vertex_0006: bone_33=0.255 bone_32=0.251 bone_05=0.248 bone_24=0.246 
+vertex_0007: bone_23=0.260 bone_19=0.251 bone_24=0.247 bone_06=0.242 
+vertex_0008: bone_07=0.273 bone_31=0.258 bone_10=0.240 bone_26=0.229 
+vertex_0009: bone_29=0.265 bone_31=0.251 bone_20=0.247 bone_00=0.238 
+... and 7692 more vertices

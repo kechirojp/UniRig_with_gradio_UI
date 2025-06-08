@@ -1,5 +1,5 @@
 method: tokenizer_part
-num_discrete: 256
+num_discrete: 256  # チェックポイントモデルとの互換性のため
 continuous_range: [-1, 1]
 cls_token_id:
   vroid: 0

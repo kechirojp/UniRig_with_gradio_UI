@@ -1,0 +1,15 @@
+model_name: test_pipeline_bird_input
+texture_count: 3
+textures:
+- original_name: T_tucano_bird_col_v2_BC
+  original_path: packed
+  relative_path: textures/T_tucano_bird_col_v2_BC.png
+  saved_path: /app/pipeline_work_fixed/01_extract/textures/T_tucano_bird_col_v2_BC.png
+- original_name: T_tucano_bird_gloss6_R
+  original_path: packed
+  relative_path: textures/T_tucano_bird_gloss6_R.png
+  saved_path: /app/pipeline_work_fixed/01_extract/textures/T_tucano_bird_gloss6_R.png
+- original_name: T_tucano_bird_nrml5_N
+  original_path: packed
+  relative_path: textures/T_tucano_bird_nrml5_N.png
+  saved_path: /app/pipeline_work_fixed/01_extract/textures/T_tucano_bird_nrml5_N.png

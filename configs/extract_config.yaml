@@ -1,14 +1,28 @@
-# Mesh extraction configuration
-verbose: true
-remove_duplicated_vertices: true
-merge_vertices: true
+# UniRig Step 1 - Extract Module Configuration
+# メッシュ抽出用設定ファイル
+# 基本設定をquick_inference.yamlベースに簡素化
 
-# Blender processing settings
-use_modifier_stack: true
-triangulate_faces: true
-calculate_normals: true
+# データセット設定
+input_dataset_dir: ./dataset_inference
+output_dataset_dir: ./dataset_inference_clean
 
-# Output settings
-output_format: npz
-include_armature: true
-include_mesh: true
+# 抽出処理設定
+mesh_extraction:
+  target_faces: 35000  # ターゲット面数
+  preserve_textures: true  # テクスチャ情報保持
+  normalize_mesh: true  # メッシュ正規化
+  
+# 出力設定
+output:
+  format: "npz"  # 出力フォーマット
+  generate_datalist: true  # データリスト生成
+  
+# ログ設定
+logging:
+  level: "INFO"
+  verbose: true
+
+# プロセス設定  
+processing:
+  timeout: 120  # タイムアウト（秒）
+  use_gpu: false  # GPU使用（Blender処理のため無効化）

@@ -1,8 +1,8 @@
 __target__: unirig_ar
 llm:
   pretrained_model_name_or_path: facebook/opt-350m
-  n_positions: 3076
-  max_position_embeddings: 3076
+  n_positions: 3076  # OPT モデルの+2オフセットを考慮して調整
+  max_position_embeddings: 3076  # OPT モデルの+2オフセットを考慮して調整
   hidden_size: 1024
   word_embed_proj_dim: 1024
   do_layer_norm_before: True
@@ -14,8 +14,8 @@ mesh_encoder:
   freeze_encoder: False
   device: cpu
   dtype: float32
-  num_latents: 512
-  embed_dim: 64
+  num_latents: 1024  # より複雑なモデル対応で増加
+  embed_dim: 128  # 複雑性対応で増加
   point_feats: 3
   num_freqs: 8
   include_pi: False
