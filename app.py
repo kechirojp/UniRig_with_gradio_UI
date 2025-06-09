@@ -15,742 +15,695 @@ app.py (UI + データ受け渡し)
 ├── step_modules.step3_skinning (独立実行機能) - スキニング適用
 └── step_modules.step4_texture (独立実行機能) - テクスチャ統合
 """
-import os
-import logging
 import gradio as gr
-from pathlib import Path
-import socket
-import json
+import os
 import shutil
-from datetime import datetime
+import json
+import time
+import logging
+from logging.handlers import RotatingFileHandler
+from pathlib import Path
+import subprocess
+import socket
+import sys
 
-# 内部マイクロサービスモジュールのインポート
-from step_modules.step0_asset_preservation import execute_step0
-from step_modules.step1_extract import execute_step1
-from step_modules.step2_skeleton import execute_step2
-from step_modules.step3_skinning import execute_step3
-from step_modules.step4_texture_integrated import Step4TextureIntegrated
+# ステップモジュールのインポート
+from step_modules.step0_asset_preservation import Step0AssetPreservation
+from step_modules.step1_extract import Step1Extract
+from step_modules.step2_skeleton import Step2Skeleton
+from step_modules.step3_skinning import Step3Skinning # 標準的なスキニング
+from step_modules.step3_skinning_unirig import Step3UniRigSkinning # UniRig独自のスキニング
+from step_modules.step4_texture import Step4Texture
+from step_modules.step4_texture_v2 import Step4TextureV2
 
-# ===============================================
-# 1. 基本設定 - 最小限の設定
-# ===============================================
+# 定数
+PIPELINE_BASE_DIR = Path("/app/pipeline_work")
+MAX_LOG_FILES = 10
+MAX_LOG_SIZE_MB = 5
 
-# ログ設定
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
+# --- グローバル設定 ---
+PIPELINE_DIR = Path("/app/pipeline_work/")
+MAX_FILENAME_LENGTH = 50 # UI表示用ファイル名の最大長
+DEFAULT_MODEL_NAME = "default_model"
 
-# 作業ディレクトリ設定（ファイル管理のみ）
-APP_DIR = Path(__file__).parent
-PIPELINE_DIR = APP_DIR / "pipeline_work"
-PIPELINE_DIR.mkdir(exist_ok=True)
-
-# パイプライン出力ディレクトリ（ファイル保存用）
-ASSET_PRESERVATION_DIR = PIPELINE_DIR / "00_asset_preservation"
-EXTRACT_DIR = PIPELINE_DIR / "01_extracted_mesh"
-SKELETON_DIR = PIPELINE_DIR / "02_skeleton"
-SKINNING_DIR = PIPELINE_DIR / "03_skinning"
-MERGE_DIR = PIPELINE_DIR / "04_merge"
-
-for directory in [ASSET_PRESERVATION_DIR, EXTRACT_DIR, SKELETON_DIR, SKINNING_DIR, MERGE_DIR]:
-    directory.mkdir(exist_ok=True)
-
-# ===============================================
-# 2. データ管理 - ファイル状態のみ管理
-# ===============================================
-
-class FileManager:
-    """ファイル状態管理（UIとファイルシステムの橋渡し）"""
-    
-    def __init__(self):
-        self.uploaded_files = {}
-        self.generated_files = {}
-        self.pipeline_state = {
-            "step0_complete": False,
-            "step1_complete": False,
-            "step2_complete": False,
-            "step3_complete": False,
-            "step4_complete": False,
-            "current_model": None
-        }
-    
-    def save_uploaded_file(self, file_path: str, model_name: str) -> str:
-        """アップロードファイルの保存"""
-        if not file_path:
-            return None
-        
-        # ファイル情報を記録
-        self.uploaded_files[model_name] = {
-            "original_path": file_path,
-            "upload_time": datetime.now().isoformat(),
-            "status": "uploaded"
-        }
-        
-        self.pipeline_state["current_model"] = model_name
-        return file_path
-    
-    def get_file_status(self, model_name: str) -> dict:
-        """ファイル状態の取得"""
-        return {
-            "uploaded": model_name in self.uploaded_files,
-            "pipeline_state": self.pipeline_state.copy(),
-            "files": self.generated_files.get(model_name, {})
-        }
-    
-    def get_step_files(self, step: int) -> dict:
-        """ステップの出力ファイル取得"""
-        if self.pipeline_state["current_model"]:
-            return self.generated_files.get(self.pipeline_state["current_model"], {})
-        return {}
-    
-    def mark_step_complete(self, step: int, output_files: dict):
-        """ステップ完了マーク"""
-        self.pipeline_state[f"step{step}_complete"] = True
-        
-        if self.pipeline_state["current_model"]:
-            if self.pipeline_state["current_model"] not in self.generated_files:
-                self.generated_files[self.pipeline_state["current_model"]] = {}
-            
-            self.generated_files[self.pipeline_state["current_model"]].update(output_files)
-
-# グローバルファイルマネージャー
-file_manager = FileManager()
-
-# ===============================================
-# 3. 内部マイクロサービス呼び出し - モジュール連携層
-# ===============================================
-
-def call_step0_asset_preservation(input_file: str, model_name: str) -> tuple[bool, str, dict]:
-    """ステップ0内部モジュール呼び出し（アセット保存）"""
-    
-    try:
-        logger.info(f"Step 0 開始: {input_file} → {model_name}")
-        
-        # 内部モジュール実行
-        success, logs, output_files = execute_step0(
-            input_file=input_file,
-            model_name=model_name,
-            output_dir=str(ASSET_PRESERVATION_DIR)
-        )
-        
-        if success:
-            file_manager.mark_step_complete(0, output_files)
-            logger.info(f"Step 0 完了: {output_files}")
-        else:
-            logger.error(f"Step 0 失敗: {logs}")
-        
-        return success, logs, output_files
-        
-    except Exception as e:
-        error_msg = f"Step 0 内部モジュール呼び出しエラー: {e}"
-        logger.error(error_msg)
-        return False, error_msg, {}
-
-def call_step1_extract(input_file: str, model_name: str) -> tuple[bool, str, dict]:
-    """ステップ1内部モジュール呼び出し（メッシュ抽出）"""
-    
-    try:
-        logger.info(f"Step 1 開始: {input_file} → {model_name}")
-        
-        # current_modelを設定
-        file_manager.pipeline_state["current_model"] = model_name
-        
-        # 内部モジュール実行
-        success, logs, output_files = execute_step1(
-            input_file=input_file,
-            model_name=model_name,
-            output_dir=EXTRACT_DIR,
-            preserve_textures=True
-        )
-        
-        if success:
-            file_manager.mark_step_complete(1, output_files)
-            logger.info(f"Step 1 完了: {output_files}")
-        else:
-            logger.error(f"Step 1 失敗: {logs}")
-        
-        return success, logs, output_files
-        
-    except Exception as e:
-        error_msg = f"Step 1 内部モジュール呼び出しエラー: {e}"
-        logger.error(error_msg)
-        return False, error_msg, {}
-
-def call_step2_skeleton(model_name: str, gender: str) -> tuple[bool, str, dict]:
-    """ステップ2内部モジュール呼び出し（スケルトン生成）"""
-    
-    try:
-        logger.info(f"Step 2 開始: {model_name} (gender: {gender})")
-        
-        # Step 1の出力ファイルを直接指定
-        mesh_file = EXTRACT_DIR / "raw_data.npz"
-        logger.info(f"Step 2: 探索ファイルパス = {mesh_file}")
-        logger.info(f"Step 2: ファイル存在チェック = {mesh_file.exists()}")
-        
-        if not mesh_file.exists():
-            logger.error(f"Step 2: EXTRACT_DIR = {EXTRACT_DIR}")
-            logger.error(f"Step 2: ファイル一覧 = {list(EXTRACT_DIR.glob('*'))}")
-            return False, f"Step 1の出力ファイルが見つかりません: {mesh_file}", {}
-        
-        # 内部モジュール実行
-        logger.info(f"Step 2: execute_step2 呼び出し開始")
-        success, logs, output_files = execute_step2(
-            mesh_file=str(mesh_file),
-            model_name=model_name,
-            output_dir=SKELETON_DIR,
-            gender=gender
-        )
-        
-        if success:
-            file_manager.mark_step_complete(2, output_files)
-            logger.info(f"Step 2 完了: {output_files}")
-        else:
-            logger.error(f"Step 2 失敗: {logs}")
-        
-        return success, logs, output_files
-        
-    except Exception as e:
-        error_msg = f"Step 2 内部モジュール呼び出しエラー: {e}"
-        logger.error(error_msg)
-        return False, error_msg, {}
-        return False, error_msg, {}
-
-def call_step3_skinning(model_name: str) -> tuple[bool, str, dict]:
-    """ステップ3内部モジュール呼び出し（スキニング適用）"""
-    
-    try:
-        logger.info(f"Step 3 開始: {model_name}")
-        
-        # Step 1, 2の実際の出力ファイルパス
-        mesh_file = EXTRACT_DIR / "raw_data.npz"
-        skeleton_file = SKELETON_DIR / f"{model_name}_skeleton.fbx"
-        
-        if not mesh_file.exists():
-            return False, f"Step 1の出力ファイルが見つかりません: {mesh_file}", {}
-        if not skeleton_file.exists():
-            return False, f"Step 2の出力ファイルが見つかりません: {skeleton_file}", {}
-        
-        # 内部モジュール実行
-        success, logs, output_files = execute_step3(
-            mesh_file=str(mesh_file),
-            skeleton_file=str(skeleton_file),
-            model_name=model_name,
-            output_dir=SKINNING_DIR
-        )
-        
-        if success:
-            file_manager.mark_step_complete(3, output_files)
-            logger.info(f"Step 3 完了: {output_files}")
-        else:
-            logger.error(f"Step 3 失敗: {logs}")
-        
-        return success, logs, output_files
-        
-    except Exception as e:
-        error_msg = f"Step 3 内部モジュール呼び出しエラー: {e}"
-        logger.error(error_msg)
-        return False, error_msg, {}
-
-def call_step4_texture(model_name: str) -> tuple[bool, str, dict]:
-    """ステップ4内部モジュール呼び出し（テクスチャ統合）- モック版"""
-    
-    try:
-        logger.info(f"Step 4 開始: {model_name}")
-        
-        # Step 3の出力ファイル
-        skinned_fbx = SKINNING_DIR / f"{model_name}_skinned.fbx"
-        
-        if not skinned_fbx.exists():
-            return False, f"Step 3の出力ファイルが見つかりません: {skinned_fbx}", {}
-        
-        # モック版の最終ファイル（とりあえずStep3の出力をコピー）
-        final_fbx = MERGE_DIR / f"{model_name}_final.fbx"
-        MERGE_DIR.mkdir(exist_ok=True)
-        
-        import shutil
-        shutil.copy2(skinned_fbx, final_fbx)
-        
-        output_files = {"final_fbx": str(final_fbx)}
-        file_manager.mark_step_complete(4, output_files)
-        
-        return True, f"Step 4 モック完了: {final_fbx}", output_files
-        
-    except Exception as e:
-        error_msg = f"Step 4 内部モジュール呼び出しエラー: {e}"
-        logger.error(error_msg)
-        return False, error_msg, {}
-        
-        if success:
-            file_manager.mark_step_complete(4, output_files)
-            logger.info(f"Step 4 完了: {output_files}")
-        else:
-            logger.error(f"Step 4 失敗: {logs}")
-        
-        return success, logs, output_files
-        
-    except Exception as e:
-        error_msg = f"Step 4 内部モジュール呼び出しエラー: {e}"
-        logger.error(error_msg)
-        return False, error_msg, {}
-
-def call_step4_texture_v2(model_name: str) -> tuple[bool, str, dict]:
-    """ステップ4内部モジュール呼び出し（テクスチャ統合 - v2版）"""
-    
-    try:
-        logger.info(f"Step 4 v2開始: {model_name}")
-        
-        # Step 3の出力ファイルを状態管理から取得
-        step3_files = file_manager.get_step_files(3)
-        skinned_fbx = step3_files.get("skinned_fbx")
-        
-        if not skinned_fbx or not Path(skinned_fbx).exists():
-            return False, f"Step 3の出力ファイルが見つかりません: {skinned_fbx}", {}
-        
-        # オリジナルファイルパスの取得
-        original_model = None
-        if file_manager.pipeline_state["current_model"]:
-            uploaded_info = file_manager.uploaded_files.get(file_manager.pipeline_state["current_model"])
-            if uploaded_info:
-                original_model = uploaded_info["original_path"]
-        
-        if not original_model:
-            return False, "オリジナルモデルファイルの情報が見つかりません", {}
-        
-        # メタデータファイルの確認
-        metadata_file = ASSET_PRESERVATION_DIR / model_name / f"{model_name}_asset_metadata.json"
-        
-        # Step4統合モジュールのインスタンス作成
-        step4_module = Step4TextureIntegrated(MERGE_DIR)
-        
-        # 内部モジュール実行 (統合版)
-        success, logs, output_files = step4_module.merge_textures(
-            skinned_fbx=skinned_fbx,
-            original_model=original_model,
-            model_name=model_name,
-            metadata_file=str(metadata_file) if metadata_file.exists() else None
-        )
-        
-        if success:
-            file_manager.mark_step_complete(4, output_files)
-            logger.info(f"Step 4 統合版完了: {output_files}")
-        else:
-            logger.error(f"Step 4 統合版失敗: {logs}")
-        
-        return success, logs, output_files
-        
-    except Exception as e:
-        error_msg = f"Step 4 v2内部モジュール呼び出しエラー: {e}"
-        logger.error(error_msg)
-        return False, error_msg, {}
-
-# ===============================================
-# 4. UI処理関数 - データ受け渡しのみ
-# ===============================================
-
-def process_complete_pipeline(input_file, gender: str = "neutral"):
-    """
-    完全パイプライン実行 - マイクロサービス版
-    各ステップをマイクロサービスとして呼び出し
-    """
-    if not input_file:
-        return "❌ ファイルがアップロードされていません", None
-    
-    # モデル名の生成
-    model_name = Path(input_file.name).stem
-    
-    # アップロードファイルを保存
-    file_manager.save_uploaded_file(input_file.name, model_name)
-    
-    logs = []
-    
-    try:
-        # Step 0: アセット保存（内部モジュール）
-        logs.append("=== ステップ 0: アセット保存 開始 ===")
-        success, step_logs, output_files = call_step0_asset_preservation(input_file.name, model_name)
-        logs.append(step_logs)
-        
-        if not success:
-            logs.append("❌ ステップ 0 でエラーが発生しました")
-            return "\n".join(logs), None
-        logs.append("✅ ステップ 0 完了")
-        
-        # Step 1: メッシュ抽出（内部モジュール）
-        logs.append("\n=== ステップ 1: メッシュ抽出 開始 ===")
-        success, step_logs, output_files = call_step1_extract(input_file.name, model_name)
-        logs.append(step_logs)
-        
-        if not success:
-            logs.append("❌ ステップ 1 でエラーが発生しました")
-            return "\n".join(logs), None
-        logs.append("✅ ステップ 1 完了")
-        
-        # Step 2: スケルトン生成（内部モジュール）
-        logs.append("\n=== ステップ 2: スケルトン生成 開始 ===")
-        success, step_logs, output_files = call_step2_skeleton(model_name, gender)
-        logs.append(step_logs)
-        
-        if not success:
-            logs.append("❌ ステップ 2 でエラーが発生しました")
-            return "\n".join(logs), None
-        logs.append("✅ ステップ 2 完了")
-        
-        # Step 3: スキニング生成（内部モジュール）
-        logs.append("\n=== ステップ 3: スキニング生成 開始 ===")
-        success, step_logs, output_files = call_step3_skinning(model_name)
-        logs.append(step_logs)
-        
-        if not success:
-            logs.append("❌ ステップ 3 でエラーが発生しました")
-            return "\n".join(logs), None
-        logs.append("✅ ステップ 3 完了")
-        
-        # Step 4: 最終統合（内部モジュール - モック版）
-        logs.append("\n=== ステップ 4: 最終統合 開始 ===")
-        success, step_logs, output_files = call_step4_texture(model_name)
-        logs.append(step_logs)
-        
-        if not success:
-            logs.append("❌ ステップ 4 でエラーが発生しました")
-            return "\n".join(logs), None
-        logs.append("✅ ステップ 4 完了")
-        
-        # 最終ファイルパスを取得
-        final_fbx = output_files.get("final_fbx")
-        
-        logs.append("\n🎉 自動リギング完了！アニメーション可能なモデルが生成されました。")
-        return "\n".join(logs), final_fbx
-        
-    except Exception as e:
-        error_msg = f"❌ パイプライン実行中にエラーが発生しました: {e}"
-        logs.append(error_msg)
-        logger.error(error_msg)
-        return "\n".join(logs), None
-
-# ===============================================
-# 5. 段階別処理関数 - マイクロサービス版
-# ===============================================
-
-# ステップバイステップ実行用の状態管理（簡略化）
-stepwise_state = {
-    "current_model": None
+STEP_SUBDIR_NAMES = {
+    "step0_asset_preservation": "00_asset_preservation",
+    "step1_extract": "01_extracted_mesh",
+    "step2_skeleton": "02_skeleton",
+    "step3_skinning": "03_skinning",
+    "step4_merge": "04_merge",
+    "output": "output", # Final output if distinct
 }
 
-def process_step0_only(input_file):
-    """ステップ0のみ実行: アセット保存（内部モジュール）"""
-    if not input_file:
-        return "❌ ファイルがアップロードされていません", None
-    
-    model_name = Path(input_file.name).stem
-    stepwise_state["current_model"] = model_name
-    
-    success, logs, output_files = call_step0_asset_preservation(input_file.name, model_name)
-    
-    if success:
-        return f"✅ アセット保存完了:\n{logs}", output_files.get("asset_metadata_json")
-    else:
-        return f"❌ アセット保存失敗:\n{logs}", None
+# --- ロガー設定 ---
+# グローバルロガーの初期化
+app_logger = logging.getLogger("UniRigApp")
+if not app_logger.handlers:
+    app_logger.setLevel(logging.DEBUG)
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(logging.INFO) # コンソールはINFO以上
+    console_formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    console_handler.setFormatter(console_formatter)
+    app_logger.addHandler(console_handler)
 
-def process_step1_only(input_file):
-    """ステップ1のみ実行: メッシュ抽出（内部モジュール）"""
-    if not input_file:
-        return "❌ ファイルがアップロードされていません", None
-    
-    model_name = Path(input_file.name).stem
-    stepwise_state["current_model"] = model_name
-    # file_managerにも設定
-    file_manager.pipeline_state["current_model"] = model_name
-    
-    success, logs, output_files = call_step1_extract(input_file.name, model_name)
-    
-    if success:
-        extracted_file = output_files.get("extracted_mesh")
-        return f"Step 1完了: {extracted_file}", extracted_file
-    else:
-        return f"❌ ステップ 1 失敗\n{logs}", None
+# --- FileManagerクラス ---
+class FileManager:
+    def __init__(self, model_name: str):
+        if not model_name:
+            app_logger.warning("FileManager初期化: model_nameが空です。デフォルト名を使用します。")
+            model_name = DEFAULT_MODEL_NAME
+        self.model_name = self._sanitize_model_name(model_name)
+        self.base_model_dir = PIPELINE_DIR / self.model_name
+        self.state_file_path = self.base_model_dir / "pipeline_state.json"
+        
+        self.base_model_dir.mkdir(parents=True, exist_ok=True)
+        self._setup_model_specific_logging()
 
-def process_step2_only(gender):
-    """ステップ2のみ実行: スケルトン生成（内部モジュール）"""
-    model_name = stepwise_state.get("current_model")
-    if not model_name:
-        return "❌ 先にステップ 1を実行してください", None, None
-    
-    success, logs, output_files = call_step2_skeleton(model_name, gender)
-    
-    if success:
-        skeleton_fbx = output_files.get("skeleton_fbx")
-        skeleton_npz = output_files.get("skeleton_npz")
-        return f"✅ ステップ 2 完了\n{logs}", skeleton_fbx, skeleton_npz
-    else:
-        return f"❌ ステップ 2 失敗\n{logs}", None, None
+    def _sanitize_model_name(self, model_name: str) -> str:
+        """モデル名をサニタイズ（ファイルシステム互換にする）"""
+        # ここではシンプルにアンダースコアに置換する例
+        return model_name.replace(" ", "_").replace(":", "_").replace("/", "_")
 
-def process_step3_only():
-    """ステップ3のみ実行: スキニング生成（内部モジュール）"""
-    model_name = stepwise_state.get("current_model")
-    if not model_name:
-        return "❌ 先にステップ 1, 2を実行してください", None, None
-    
-    success, logs, output_files = call_step3_skinning(model_name)
-    
-    if success:
-        skinned_fbx = output_files.get("skinned_fbx")
-        skinning_npz = output_files.get("skinning_npz")
-        return f"✅ ステップ 3 完了\n{logs}", skinned_fbx, skinning_npz
-    else:
-        return f"❌ ステップ 3 失敗\n{logs}", None, None
+    def _setup_model_specific_logging(self):
+        # app_logger にモデル固有のファイルハンドラを追加
+        # 既存のハンドラをすべて削除してから追加する（重複防止）
+        # for handler in app_logger.handlers[:]:
+        #     if isinstance(handler, logging.FileHandler) and self.model_name in handler.baseFilename:
+        #         app_logger.removeHandler(handler)
+        #         handler.close()
+        
+        log_file = self.get_log_file_path()
+        model_file_handler = logging.FileHandler(log_file)
+        formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+        model_file_handler.setFormatter(formatter)
+        model_file_handler.setLevel(logging.DEBUG)
+        # app_logger.addHandler(model_file_handler) # グローバルロガーにハンドラを追加
+        # self.model_logger = app_logger # このインスタンス用のロガー参照 (実質グローバル)
+        # 代わりに、このFileManagerインスタンス専用のロガーを作成することも検討できる
+        self.model_specific_logger = logging.getLogger(f"UniRigApp.{self.model_name}")
+        self.model_specific_logger.setLevel(logging.DEBUG)
+        if not any(isinstance(h, logging.FileHandler) and h.baseFilename == str(log_file) for h in self.model_specific_logger.handlers):
+            self.model_specific_logger.addHandler(model_file_handler)
+        if not any(isinstance(h, logging.StreamHandler) for h in self.model_specific_logger.handlers): # stdoutも追加
+            stdout_handler = logging.StreamHandler(sys.stdout)
+            stdout_handler.setFormatter(formatter)
+            stdout_handler.setLevel(logging.INFO) # コンソールはINFO以上
+            self.model_specific_logger.addHandler(stdout_handler)
+        self.model_specific_logger.propagate = False # グローバルロガーへの伝播を防ぐ
 
-def process_step4_only():
-    """ステップ4のみ実行: 最終統合（内部モジュール）"""
-    model_name = stepwise_state.get("current_model")
-    if not model_name:
-        return "❌ 先にステップ 1, 2, 3を実行してください", None
-    
-    success, logs, output_files = call_step4_texture(model_name)
-    
-    if success:
-        final_fbx = output_files.get("final_fbx")
-        return f"✅ ステップ 4 完了\n{logs}", final_fbx
-    else:
-        return f"❌ ステップ 4 失敗\n{logs}", None
 
-# ===============================================
-# 6. Gradio UI - 簡素化版
-# ===============================================
+    def get_log_file_path(self) -> Path:
+        return self.base_model_dir / f"{self.model_name}_pipeline.log"
 
-def create_ui():
-    """マイクロサービス対応UI - データ受け渡し特化版"""
-    
-    with gr.Blocks(
-        title="UniRig MVP - マイクロサービス フロントエンド",
-        theme=gr.themes.Default()
-    ) as app:
-        
-        gr.Markdown("""
-        # 🎯 UniRig MVP - 内部マイクロサービス フロントエンド
-        
-        **基本機能のみ: UI + データ受け渡し特化設計**
-        
-        - 🧩 各処理ステップは独立した内部モジュールとして動作
-        - 📊 フロントエンドはファイル管理とUI表示のみ担当
-        - 🔄 内部関数呼び出しでモジュールと通信
-        - ⚡ 軽量・高速・拡張性に優れた設計
-        
-        ### 🧱 内部モジュール構成
-        ```
-        Step 0 (アセット保存): step_modules.step0_asset_preservation
-        Step 1 (メッシュ抽出): step_modules.step1_extract
-        Step 2 (スケルトン生成): step_modules.step2_skeleton  
-        Step 3 (スキニング適用): step_modules.step3_skinning
-        Step 4 (テクスチャ統合): step_modules.step4_texture
-        ```
-        """)
-        
-        with gr.Tabs():
-            # =================================
-            # タブ1: 自動実行
-            # =================================
-            with gr.TabItem("🚀 自動リギング実行"):
-                gr.Markdown("""
-                ### ワンクリック自動リギング
-                内部マイクロサービス経由で全4ステップを自動実行します。
-                """)
-                
-                with gr.Row():
-                    with gr.Column(scale=1):
-                        gr.Markdown("#### 📁 入力設定")
-                        complete_input_file = gr.File(
-                            label="3Dモデルファイル",
-                            file_types=[".glb", ".fbx", ".obj", ".gltf", ".ply"],
-                            type="filepath"
-                        )
-                        
-                        complete_gender = gr.Radio(
-                            choices=["neutral", "male", "female"],
-                            value="neutral",
-                            label="性別設定"
-                        )
-                        
-                        complete_run_button = gr.Button(
-                            "🚀 自動リギング開始",
-                            variant="primary",
-                            size="lg"
-                        )
-                        
-                    with gr.Column(scale=2):
-                        output_log = gr.Textbox(
-                            label="実行ログ（マイクロサービス通信含む）",
-                            lines=15,
-                            max_lines=20,
-                            placeholder="ここにマイクロサービスからのレスポンスが表示されます..."
-                        )
-                
-                gr.Markdown("#### 📥 最終出力ファイル")
-                complete_final = gr.File(label="🎯 リギング完了モデル (.fbx)", file_count="single")
-            
-            # =================================
-            # タブ2: ステップバイステップ実行
-            # =================================
-            with gr.TabItem("🔧 段階別実行"):
-                gr.Markdown("""
-                ### 段階別内部モジュール実行
-                各ステップを個別の内部モジュールとして実行・確認できます。
-                """)
-                
-                # Step 0: アセット保存
-                gr.Markdown("#### ステップ 0: アセット保存モジュール")
-                with gr.Row():
-                    with gr.Column(scale=1):
-                        step0_input = gr.File(
-                            label="3Dモデルファイル",
-                            file_types=[".glb", ".fbx", ".obj", ".gltf", ".ply"],
-                            type="filepath"
-                        )
-                        step0_button = gr.Button("内部モジュール実行", variant="secondary")
-                    
-                    with gr.Column(scale=2):
-                        step0_logs = gr.Textbox(label="モジュール出力", lines=3)
-                        step0_output = gr.File(label="アセットメタデータ (.json)")
-                
-                # Step 1: メッシュ抽出
-                gr.Markdown("#### ステップ 1: メッシュ抽出モジュール")
-                with gr.Row():
-                    with gr.Column(scale=1):
-                        step1_input = gr.File(
-                            label="3Dモデルファイル",
-                            file_types=[".glb", ".fbx", ".obj", ".gltf", ".ply"],
-                            type="filepath"
-                        )
-                        step1_button = gr.Button("内部モジュール実行", variant="secondary")
-                    
-                    with gr.Column(scale=2):
-                        step1_logs = gr.Textbox(label="モジュール出力", lines=3)
-                        step1_output = gr.File(label="抽出メッシュ (.npz)")
-                
-                # Step 2: スケルトン生成
-                gr.Markdown("#### ステップ 2: スケルトン生成モジュール")
-                with gr.Row():
-                    with gr.Column(scale=1):
-                        step2_gender = gr.Radio(
-                            choices=["neutral", "male", "female"],
-                            value="neutral",
-                            label="性別設定"
-                        )
-                        step2_button = gr.Button("内部モジュール実行", variant="secondary")
-                    
-                    with gr.Column(scale=2):
-                        step2_logs = gr.Textbox(label="モジュール出力", lines=3)
-                        with gr.Row():
-                            step2_skeleton_fbx = gr.File(label="スケルトン (.fbx)")
-                            step2_skeleton_npz = gr.File(label="スケルトンデータ (.npz)")
-                
-                # Step 3: スキニング生成
-                gr.Markdown("#### ステップ 3: スキニング生成モジュール")
-                with gr.Row():
-                    with gr.Column(scale=1):
-                        step3_button = gr.Button("内部モジュール実行", variant="secondary")
-                    
-                    with gr.Column(scale=2):
-                        step3_logs = gr.Textbox(label="モジュール出力", lines=3)
-                        with gr.Row():
-                            step3_skinned_fbx = gr.File(label="リギング済み (.fbx)")
-                            step3_skinning_npz = gr.File(label="スキニングデータ (.npz)")
-                
-                # Step 4: 最終統合
-                gr.Markdown("#### ステップ 4: 最終統合モジュール")
-                with gr.Row():
-                    with gr.Column(scale=1):
-                        step4_button = gr.Button("内部モジュール実行", variant="secondary")
-                    
-                    with gr.Column(scale=2):
-                        step4_logs = gr.Textbox(label="モジュール出力", lines=3)
-                        step4_final_fbx = gr.File(label="最終モデル (.fbx)")
-        
-        # =================================
-        # イベント処理: 自動実行
-        # =================================
-        complete_run_button.click(
-            fn=process_complete_pipeline,
-            inputs=[complete_input_file, complete_gender],
-            outputs=[
-                output_log,
-                complete_final
-            ]
-        )
-        
-        # =================================
-        # イベント処理: 段階別実行
-        # =================================
-        step0_button.click(
-            fn=process_step0_only,
-            inputs=[step0_input],
-            outputs=[step0_logs, step0_output]
-        )
-        
-        step1_button.click(
-            fn=process_step1_only,
-            inputs=[step1_input],
-            outputs=[step1_logs, step1_output]
-        )
-        
-        step2_button.click(
-            fn=process_step2_only,
-            inputs=[step2_gender],
-            outputs=[step2_logs, step2_skeleton_fbx, step2_skeleton_npz]
-        )
-        
-        step3_button.click(
-            fn=process_step3_only,
-            inputs=[],
-            outputs=[step3_logs, step3_skinned_fbx, step3_skinning_npz]
-        )
-        
-        step4_button.click(
-            fn=process_step4_only,
-            inputs=[],
-            outputs=[step4_logs, step4_final_fbx]
-        )
-    
-    return app
+    def get_model_dir(self) -> Path:
+        self.base_model_dir.mkdir(parents=True, exist_ok=True)
+        return self.base_model_dir
 
-# ===============================================
-# 7. アプリケーション起動
-# ===============================================
+    def get_step_output_dir(self, step_key: str) -> Path:
+        subdir_name = STEP_SUBDIR_NAMES.get(step_key)
+        if not subdir_name:
+            self.model_specific_logger.error(f"未知のステップキーです: {step_key}")
+            raise ValueError(f"Unknown step key: {step_key}")
+        step_dir = self.base_model_dir / subdir_name
+        step_dir.mkdir(parents=True, exist_ok=True)
+        return step_dir
 
-def find_available_port(start_port=7860, max_attempts=100):
-    """利用可能なポートを見つける"""
-    for port in range(start_port, start_port + max_attempts):
+    def save_uploaded_file(self, uploaded_file_path: str) -> Path:
+        """アップロードされたファイルをモデルディレクトリのルートに保存する"""
+        original_path = Path(uploaded_file_path)
+        target_path = self.base_model_dir / original_path.name
+        
+        # ファイルが既に存在する場合、上書きする前にログを出すか、バージョン管理を検討
+        if target_path.exists():
+            self.model_specific_logger.warning(f"アップロードされたファイルは既に存在します。上書きします: {target_path}")
+        
+        shutil.copy(original_path, target_path)
+        self.model_specific_logger.info(f"アップロードされたファイルを保存しました: {target_path}")
+        return target_path # 保存先のパスを返す
+
+    def get_uploaded_file_path(self, original_filename: str) -> Path:
+        """モデルディレクトリに保存された元のアップロードファイルのパスを取得する"""
+        return self.base_model_dir / original_filename
+
+    def update_pipeline_state(self, new_state: dict):
+        current_state = self.load_pipeline_state()
+        current_state.update(new_state)
         try:
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                s.bind(('', port))
-                return port
-        except OSError:
-            continue
-    raise RuntimeError(f"利用可能なポートが見つかりません (範囲: {start_port}-{start_port + max_attempts})")
+            with open(self.state_file_path, 'w') as f:
+                json.dump(current_state, f, indent=4)
+            self.model_specific_logger.info(f"パイプライン状態を更新しました: {self.state_file_path}")
+        except IOError as e:
+            self.model_specific_logger.error(f"パイプライン状態ファイルの書き込みに失敗しました: {e}", exc_info=True)
 
-def main():
-    """アプリケーションメイン"""
-    logger.info("UniRig MVP 起動中...")
+
+    def load_pipeline_state(self) -> dict:
+        if self.state_file_path.exists():
+            try:
+                with open(self.state_file_path, 'r') as f:
+                    return json.load(f)
+            except (IOError, json.JSONDecodeError) as e:
+                self.model_specific_logger.error(f"パイプライン状態ファイルの読み込みに失敗しました: {e}", exc_info=True)
+                return {} # エラー時は空のdictを返す
+        return {}
+
+    def reset_pipeline_state(self):
+        """パイプラインの状態をリセットし、関連ディレクトリをクリーンアップする"""
+        self.model_specific_logger.info(f"パイプライン状態をリセットします: {self.model_name}")
+        
+        # 既存のモデル固有ログハンドラを閉じて削除
+        if hasattr(self, 'model_specific_logger'):
+            for handler in self.model_specific_logger.handlers[:]:
+                if isinstance(handler, logging.FileHandler):
+                    handler.close()
+                    self.model_specific_logger.removeHandler(handler)
+
+        # ディレクトリを削除する前に、ファイルが開かれていないことを確認する
+        # (特にログファイル)
+        time.sleep(0.1) # ハンドラが閉じるのを少し待つ
+
+        if self.base_model_dir.exists():
+            try:
+                shutil.rmtree(self.base_model_dir)
+                self.model_specific_logger.info(f"モデルディレクトリを削除しました: {self.base_model_dir}")
+            except OSError as e:
+                self.model_specific_logger.error(f"モデルディレクトリの削除に失敗しました: {e}. ファイルが使用中の可能性があります。", exc_info=True)
+                # フォールバックとして、stateファイルだけでも削除を試みる
+                if self.state_file_path.exists():
+                    try:
+                        self.state_file_path.unlink()
+                        self.model_specific_logger.info("pipeline_state.json のみを削除しました。")
+                    except OSError as e_state:
+                         self.model_specific_logger.error(f"pipeline_state.json の削除にも失敗しました: {e_state}", exc_info=True)
+
+        self.base_model_dir.mkdir(parents=True, exist_ok=True) # ディレクトリを再作成
+        self._setup_model_specific_logging() # 新しいログファイルで再設定
+        self.update_pipeline_state({}) # 空の状態でstateファイルを作成
+
+    def mark_step_complete(self, step_key: str, result: dict):
+        """ステップの完了状態と出力ファイルを記録する"""
+        # result は { "status": "success/error", "message": "...", "outputs": {"file_key": "path"}, "error": "..." } のような形式を期待
+        self.update_pipeline_state({step_key: result})
+        if result.get("status") == "success":
+            self.model_specific_logger.info(f"ステップ {step_key} 正常完了: {result.get('message', '')}")
+        else:
+            self.model_specific_logger.error(f"ステップ {step_key} 失敗: {result.get('message', '')} 詳細: {result.get('error', '')}")
+
+
+    def get_step_files(self, step_key: str) -> dict:
+        """指定されたステップの出力ファイル情報を取得する"""
+        state = self.load_pipeline_state()
+        step_info = state.get(step_key, {})
+        return step_info.get("outputs", {})
+
+    def get_step_output_file_path(self, step_key: str, file_key: str) -> Path:
+        """指定されたステップの特定の出力ファイルの絶対パスを取得する"""
+        files = self.get_step_files(step_key)
+        file_path_str = files.get(file_key)
+        if file_path_str:
+            return Path(file_path_str)
+        self.model_specific_logger.warning(f"ファイルが見つかりません: ステップ '{step_key}', ファイルキー '{file_key}'")
+        return None
+
+# --- パイプラインステップ関数 ---
+def call_step0_preserve_assets(model_name: str, progress: gr.Progress):
+    progress(0.05, desc="ステップ0: アセット情報保存中...")
+    file_manager = FileManager(model_name)
+    pipeline_state = file_manager.load_pipeline_state()
+    original_filename = pipeline_state.get("original_filename")
+
+    if not original_filename:
+        error_msg = "ステップ0エラー: 元のアップロードファイル名がstateから取得できませんでした。"
+        file_manager.model_specific_logger.error(error_msg)
+        file_manager.mark_step_complete("step0_asset_preservation", {"status": "error", "message": error_msg, "error": error_msg})
+        return False, error_msg, None, f"エラー: {error_msg}"
+
+    input_file_path = file_manager.get_uploaded_file_path(original_filename)
+    if not input_file_path.exists():
+        error_msg = f"ステップ0エラー: 元のアップロードファイルが見つかりません: {input_file_path}"
+        file_manager.model_specific_logger.error(error_msg)
+        file_manager.mark_step_complete("step0_asset_preservation", {"status": "error", "message": error_msg, "error": error_msg})
+        return False, error_msg, None, f"エラー: {error_msg}"
+
+    output_dir_step0 = file_manager.get_step_output_dir("step0_asset_preservation")
     
-    # 利用可能なポートを自動検出
     try:
-        port = find_available_port()
-        logger.info(f"利用可能なポート発見: {port}")
-    except RuntimeError as e:
-        logger.error(f"ポート検出エラー: {e}")
+        step0_processor = Step0AssetPreservation(
+            model_name=model_name,
+            input_file=str(input_file_path),
+            output_dir=str(output_dir_step0),
+            logger_instance=file_manager.model_specific_logger
+        )
+        success, logs, outputs = step0_processor.preserve_assets()
+
+        status = "success" if success else "error"
+        message = logs if logs else ("正常完了" if success else "エラー発生")
+        file_manager.mark_step_complete("step0_asset_preservation", {"status": status, "message": message, "outputs": outputs, "error": "" if success else message})
+        ui_message = f"ステップ0: {message}"
+        return success, message, outputs.get("asset_metadata_json") if outputs else None, ui_message
+    except Exception as e:
+        error_msg = f"Step 0 内部モジュール呼び出しエラー: {e}"
+        file_manager.model_specific_logger.error(error_msg, exc_info=True)
+        file_manager.mark_step_complete("step0_asset_preservation", {"status": "error", "message": error_msg, "error": str(e)})
+        return False, error_msg, None, f"エラー: {error_msg}"
+
+
+def call_step1_extract_mesh(model_name: str, progress: gr.Progress):
+    progress(0.15, desc="ステップ1: メッシュ抽出中...")
+    file_manager = FileManager(model_name)
+    pipeline_state = file_manager.load_pipeline_state()
+    original_filename = pipeline_state.get("original_filename")
+
+    if not original_filename:
+        error_msg = "ステップ1エラー: 元のアップロードファイル名がstateから取得できませんでした。"
+        file_manager.model_specific_logger.error(error_msg)
+        file_manager.mark_step_complete("step1_extract", {"status": "error", "message": error_msg, "error": error_msg})
+        return False, error_msg, None, f"エラー: {error_msg}"
+
+    input_file_path = file_manager.get_uploaded_file_path(original_filename)
+    if not input_file_path.exists():
+        error_msg = f"ステップ1エラー: 元のアップロードファイルが見つかりません: {input_file_path}"
+        file_manager.model_specific_logger.error(error_msg)
+        file_manager.mark_step_complete("step1_extract", {"status": "error", "message": error_msg, "error": error_msg})
+        return False, error_msg, None, f"エラー: {error_msg}"
+
+    output_dir_step1 = file_manager.get_step_output_dir("step1_extract")
+    
+    try:
+        step1_processor = Step1Extract(
+            output_dir=Path(output_dir_step1),
+            logger_instance=file_manager.model_specific_logger
+        )
+        success, logs, outputs = step1_processor.extract_mesh(
+            input_file_path=Path(input_file_path),
+            model_name=model_name,
+            preserve_textures_in_step1=False
+        )
+        status = "success" if success else "error"
+        message = logs if logs else ("正常完了" if success else "エラー発生")
+        file_manager.mark_step_complete("step1_extract", {"status": status, "message": message, "outputs": outputs, "error": "" if success else message})
+        ui_message = f"ステップ1: {message}"
+        extracted_npz_path = outputs.get("extracted_npz") if outputs else None
+        return success, message, extracted_npz_path, ui_message
+    except Exception as e:
+        error_msg = f"Step 1 内部モジュール呼び出しエラー: {e}"
+        file_manager.model_specific_logger.error(error_msg, exc_info=True)
+        file_manager.mark_step_complete("step1_extract", {"status": "error", "message": error_msg, "error": str(e)})
+        return False, error_msg, None, f"エラー: {error_msg}"
+
+
+def call_step2_generate_skeleton(model_name: str, gender: str, progress: gr.Progress):
+    progress(0.3, desc="ステップ2: スケルトン生成中...")
+    file_manager = FileManager(model_name)
+    pipeline_state = file_manager.load_pipeline_state()
+    original_filename = pipeline_state.get("original_filename") # FBXコピー元特定のため
+
+    step1_outputs = pipeline_state.get("step1_extract", {}).get("outputs", {})
+    input_npz_path_str = step1_outputs.get("extracted_npz")
+
+    if not input_npz_path_str:
+        error_msg = "ステップ2エラー: Step1からの入力NPZファイルパスが見つかりません。"
+        file_manager.model_specific_logger.error(error_msg)
+        file_manager.mark_step_complete("step2_skeleton", {"status": "error", "message": error_msg, "error": error_msg})
+        return False, error_msg, None, None, f"エラー: {error_msg}"
+    
+    input_npz_path = Path(input_npz_path_str)
+    if not input_npz_path.exists():
+        error_msg = f"ステップ2エラー: 入力NPZファイルが見つかりません: {input_npz_path}"
+        file_manager.model_specific_logger.error(error_msg)
+        file_manager.mark_step_complete("step2_skeleton", {"status": "error", "message": error_msg, "error": error_msg})
+        return False, error_msg, None, None, f"エラー: {error_msg}"
+
+    # Step1が入力ファイルを自身の出力ディレクトリにコピーしたパスを特定
+    # Step1Extract.extract_mesh内で persistent_input_file = self.output_dir / f"{model_name}{input_file_path.suffix}" として保存
+    original_model_copied_by_step1_path = file_manager.get_step_output_dir("step1_extract") / f"{model_name}{Path(original_filename).suffix}"
+    if not original_model_copied_by_step1_path.exists():
+        # Fallback: 元のアップロードファイルパスを直接使用 (Step1のコピーが失敗した場合など)
+        original_model_copied_by_step1_path = file_manager.get_uploaded_file_path(original_filename)
+        if not original_model_copied_by_step1_path.exists():
+            error_msg = f"ステップ2エラー: FBXコピー元のファイルが見つかりません: {original_model_copied_by_step1_path} および元のアップロード場所"
+            file_manager.model_specific_logger.error(error_msg)
+            file_manager.mark_step_complete("step2_skeleton", {"status": "error", "message": error_msg, "error": error_msg})
+            return False, error_msg, None, None, f"エラー: {error_msg}"
+
+
+    output_dir_step2 = file_manager.get_step_output_dir("step2_skeleton")
+
+    try:
+        step2_processor = Step2Skeleton(
+            output_dir=Path(output_dir_step2),
+            logger_instance=file_manager.model_specific_logger
+        )
+        success, logs, outputs = step2_processor.generate_skeleton(
+            input_npz_path=input_npz_path,
+            model_name=model_name,
+            original_model_file_for_fbx_copy=original_model_copied_by_step1_path,
+            gender=gender
+        )
+        status = "success" if success else "error"
+        message = logs if logs else ("正常完了" if success else "エラー発生")
+        file_manager.mark_step_complete("step2_skeleton", {"status": status, "message": message, "outputs": outputs, "error": "" if success else message})
+        ui_message = f"ステップ2: {message}"
+        skeleton_fbx_path = outputs.get("skeleton_fbx") if outputs else None
+        skeleton_npz_path = outputs.get("skeleton_npz") if outputs else None
+        return success, message, skeleton_fbx_path, skeleton_npz_path, ui_message
+    except Exception as e:
+        error_msg = f"Step 2 内部モジュール呼び出しエラー: {e}"
+        file_manager.model_specific_logger.error(error_msg, exc_info=True)
+        file_manager.mark_step_complete("step2_skeleton", {"status": "error", "message": error_msg, "error": str(e)})
+        return False, error_msg, None, None, f"エラー: {error_msg}"
+
+def call_step3_apply_skinning(model_name: str, skinning_type: str, progress: gr.Progress):
+    progress(0.6, desc="ステップ3: スキニング適用中...")
+    file_manager = FileManager(model_name)
+    pipeline_state = file_manager.load_pipeline_state()
+    original_filename = pipeline_state.get("original_filename") # UniRig Skinningで必要
+
+    step1_outputs = pipeline_state.get("step1_extract", {}).get("outputs", {})
+    mesh_file_path_str = step1_outputs.get("extracted_npz")
+
+    step2_outputs = pipeline_state.get("step2_skeleton", {}).get("outputs", {})
+    skeleton_fbx_path_str = step2_outputs.get("skeleton_fbx")
+    skeleton_npz_path_str = step2_outputs.get("skeleton_npz")
+
+    if not all([mesh_file_path_str, skeleton_fbx_path_str, skeleton_npz_path_str]):
+        missing = []
+        if not mesh_file_path_str: missing.append("メッシュNPZ(Step1)")
+        if not skeleton_fbx_path_str: missing.append("スケルトンFBX(Step2)")
+        if not skeleton_npz_path_str: missing.append("スケルトンNPZ(Step2)")
+        error_msg = f"ステップ3エラー: 必要な入力ファイルパスが見つかりません ({', '.join(missing)})。"
+        file_manager.model_specific_logger.error(error_msg)
+        file_manager.mark_step_complete("step3_skinning", {"status": "error", "message": error_msg, "error": error_msg})
+        return False, error_msg, None, f"エラー: {error_msg}"
+
+    mesh_file_path = Path(mesh_file_path_str)
+    skeleton_fbx_path = Path(skeleton_fbx_path_str)
+    skeleton_npz_path = Path(skeleton_npz_path_str)
+
+    if not mesh_file_path.exists():
+        error_msg = f"ステップ3エラー: メッシュNPZファイルが見つかりません: {mesh_file_path}"
+        file_manager.model_specific_logger.error(error_msg)
+        file_manager.mark_step_complete("step3_skinning", {"status": "error", "message": error_msg, "error": error_msg})
+        return False, error_msg, None, f"エラー: {error_msg}"
+    if not skeleton_fbx_path.exists():
+        error_msg = f"ステップ3エラー: スケルトンFBXファイルが見つかりません: {skeleton_fbx_path}"
+        file_manager.model_specific_logger.error(error_msg)
+        file_manager.mark_step_complete("step3_skinning", {"status": "error", "message": error_msg, "error": error_msg})
+        return False, error_msg, None, f"エラー: {error_msg}"
+    # skeleton_npz_path はUniRig Skinningではディレクトリ渡しなので、ファイル存在チェックはモジュール内部で行う
+
+    output_dir_step3 = file_manager.get_step_output_dir("step3_skinning")
+
+    try:
+        if skinning_type == "UniRig Core":
+            step3_processor = Step3UniRigSkinning(
+                output_dir=Path(output_dir_step3),
+                logger_instance=file_manager.model_specific_logger
+            )
+            original_model_path = file_manager.get_uploaded_file_path(original_filename)
+            skeleton_dir_path = file_manager.get_step_output_dir("step2_skeleton") # Step2の出力ディレクトリ
+            success, logs, outputs = step3_processor.apply_skinning(
+                model_name=model_name,
+                original_model_path=original_model_path,
+                skeleton_dir=skeleton_dir_path, # NPZとFBXが含まれるディレクトリ
+                # unirig_core_output_dir はモジュール内で output_dir をベースに設定される
+            )
+        else: # Standard (or other types)
+            step3_processor = Step3Skinning(
+                output_dir=Path(output_dir_step3),
+                logger_instance=file_manager.model_specific_logger
+            )
+            success, logs, outputs = step3_processor.apply_skinning(
+                model_name=model_name,
+                mesh_file_path=mesh_file_path,
+                skeleton_fbx_path=skeleton_fbx_path,
+                skeleton_npz_path=skeleton_npz_path # 標準スキニングはNPZファイルパスを期待
+            )
+        
+        status = "success" if success else "error"
+        message = logs if logs else ("正常完了" if success else "エラー発生")
+        file_manager.mark_step_complete("step3_skinning", {"status": status, "message": message, "outputs": outputs, "error": "" if success else message})
+        ui_message = f"ステップ3 ({skinning_type}): {message}"
+        skinned_fbx_path = outputs.get("skinned_fbx") if outputs else None
+        return success, message, skinned_fbx_path, ui_message
+    except Exception as e:
+        error_msg = f"Step 3 ({skinning_type}) 内部モジュール呼び出しエラー: {e}"
+        file_manager.model_specific_logger.error(error_msg, exc_info=True)
+        file_manager.mark_step_complete("step3_skinning", {"status": "error", "message": error_msg, "error": str(e)})
+        return False, error_msg, None, f"エラー: {error_msg}"
+
+def call_step4_merge_textures(model_name: str, use_v2_texture_merge: bool, progress: gr.Progress):
+    progress(0.85, desc="ステップ4: テクスチャ統合中...")
+    file_manager = FileManager(model_name)
+    pipeline_state = file_manager.load_pipeline_state()
+    original_filename = pipeline_state.get("original_filename")
+
+    step0_outputs = pipeline_state.get("step0_asset_preservation", {}).get("outputs", {})
+    asset_metadata_path_str = step0_outputs.get("asset_metadata_json")
+
+    step3_outputs = pipeline_state.get("step3_skinning", {}).get("outputs", {})
+    skinned_fbx_path_str = step3_outputs.get("skinned_fbx")
+
+    if not all([asset_metadata_path_str, skinned_fbx_path_str, original_filename]):
+        missing = []
+        if not asset_metadata_path_str: missing.append("アセットメタデータJSON(Step0)")
+        if not skinned_fbx_path_str: missing.append("スキニング済みFBX(Step3)")
+        if not original_filename: missing.append("元のモデルファイル名")
+        error_msg = f"ステップ4エラー: 必要な入力情報が見つかりません ({', '.join(missing)})。"
+        file_manager.model_specific_logger.error(error_msg)
+        file_manager.mark_step_complete("step4_texture", {"status": "error", "message": error_msg, "error": error_msg})
+        return False, error_msg, None, f"エラー: {error_msg}"
+
+    asset_metadata_path = Path(asset_metadata_path_str)
+    skinned_fbx_path = Path(skinned_fbx_path_str)
+    original_model_path = file_manager.get_uploaded_file_path(original_filename)
+
+    if not asset_metadata_path.exists():
+        error_msg = f"ステップ4エラー: アセットメタデータファイルが見つかりません: {asset_metadata_path}"
+        file_manager.model_specific_logger.error(error_msg)
+        file_manager.mark_step_complete("step4_texture", {"status": "error", "message": error_msg, "error": error_msg})
+        return False, error_msg, None, f"エラー: {error_msg}"
+    if not skinned_fbx_path.exists():
+        error_msg = f"ステップ4エラー: スキニング済みFBXファイルが見つかりません: {skinned_fbx_path}"
+        file_manager.model_specific_logger.error(error_msg)
+        file_manager.mark_step_complete("step4_texture", {"status": "error", "message": error_msg, "error": error_msg})
+        return False, error_msg, None, f"エラー: {error_msg}"
+    if not original_model_path.exists():
+        error_msg = f"ステップ4エラー: 元のモデルファイルが見つかりません: {original_model_path}"
+        file_manager.model_specific_logger.error(error_msg)
+        file_manager.mark_step_complete("step4_texture", {"status": "error", "message": error_msg, "error": error_msg})
+        return False, error_msg, None, f"エラー: {error_msg}"
+
+    output_dir_step4 = file_manager.get_step_output_dir("step4_texture") # または "04_merge"
+
+    try:
+        if use_v2_texture_merge:
+            step4_processor = Step4TextureV2(
+                output_dir=Path(output_dir_step4),
+                logger_instance=file_manager.model_specific_logger
+            )
+        else:
+            step4_processor = Step4Texture(
+                output_dir=Path(output_dir_step4),
+                logger_instance=file_manager.model_specific_logger
+            )
+        
+        success, logs, outputs = step4_processor.merge_textures(
+            model_name=model_name,
+            skinned_fbx_path=skinned_fbx_path,
+            asset_metadata_path=asset_metadata_path,
+            original_model_path=original_model_path
+        )
+        
+        status = "success" if success else "error"
+        message = logs if logs else ("正常完了" if success else "エラー発生")
+        file_manager.mark_step_complete("step4_texture", {"status": status, "message": message, "outputs": outputs, "error": "" if success else message})
+        ui_message = f"ステップ4 (v2: {use_v2_texture_merge}): {message}"
+        final_fbx_path = outputs.get("final_fbx") if outputs else None
+        return success, message, final_fbx_path, ui_message
+    except Exception as e:
+        error_msg = f"Step 4 (v2: {use_v2_texture_merge}) 内部モジュール呼び出しエラー: {e}"
+        file_manager.model_specific_logger.error(error_msg, exc_info=True)
+        file_manager.mark_step_complete("step4_texture", {"status": "error", "message": error_msg, "error": str(e)})
+        return False, error_msg, None, f"エラー: {error_msg}"
+
+# --- ポートチェック関数 ---
+def is_port_in_use(port: int) -> bool:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        try:
+            s.bind(("127.0.0.1", port))
+            return False
+        except socket.error:
+            return True
+
+def check_port_periodically(port: int, interval: int = 2, max_checks: int = 5):
+    """指定されたポートが使用可能になるまで定期的にチェックする"""
+    # app_logger.info(f"ポート {port} のチェックを開始します...")
+    # for i in range(max_checks):
+    #     if not is_port_in_use(port):
+    #         app_logger.info(f"ポート {port} は利用可能です。")
+    #         return True
+    #     app_logger.info(f"ポート {port} は使用中です。 ({i+1}/{max_checks}) {interval}秒後に再試行します...")
+    #     time.sleep(interval)
+    # app_logger.error(f"ポート {port} はタイムアウト後も使用中です。Gradioの起動に失敗する可能性があります。")
+    # return False
+    # この機能はGradioがshare=Trueの場合に外部からアクセスする際に問題になることがあるため、
+    # ローカル実行では必須ではないかもしれない。一旦無効化または簡略化。
+    if is_port_in_use(port):
+        app_logger.warning(f"ポート {port} は既に使用中です。Gradioの起動に影響する可能性があります。")
+        return False
+    app_logger.info(f"ポート {port} は利用可能です。")
+    return True
+
+# --- メインパイプライン実行関数 ---
+def call_pipeline(uploaded_file, gender, use_step4_v2, progress=gr.Progress(track_tqdm=True)):
+    if uploaded_file is None:
+        yield "エラー: ファイルがアップロードされていません。", "", "", "", "", "", "", "", gr.Button(interactive=True)
         return
-    
-    # UI作成
-    app = create_ui()
-    
-    # サーバー起動
-    app.launch(
-        server_name="0.0.0.0",
-        server_port=port,
-        share=False,
-        debug=True,
-        show_error=True
+
+    original_filename_full = Path(uploaded_file.name).name
+    model_name_base = Path(original_filename_full).stem
+    model_name = FileManager(model_name_base).model_name # サニタイズされたモデル名を取得
+
+    file_manager = FileManager(model_name)
+    file_manager.reset_pipeline_state() # パイプライン開始時に状態をリセット
+    file_manager.model_specific_logger.info(f"パイプライン開始: モデル名='{model_name}', 元ファイル名='{original_filename_full}'")
+
+    # アップロードされたファイルをFileManager経由で保存
+    try:
+        saved_uploaded_file_path = file_manager.save_uploaded_file(uploaded_file.name)
+        file_manager.model_specific_logger.info(f"入力ファイルを処理準備完了: {saved_uploaded_file_path}")
+        # 元のファイル名をstateに保存
+        file_manager.update_pipeline_state({"original_filename": original_filename_full})
+    except Exception as e:
+        error_msg = f"ファイルアップロード処理エラー: {e}"
+        file_manager.model_specific_logger.error(error_msg, exc_info=True)
+        yield error_msg, "", "", "", "", "", "", "", gr.Button(interactive=True)
+        return
+
+    # UI出力用変数の初期化
+    log_output = f"パイプライン開始: {model_name}\n"
+    step0_status, step1_status, step2_status, step3_status, step4_status = ["待機中"] * 5
+    final_fbx_path_ui = ""
+    log_file_path_ui = str(file_manager.get_log_file_path()) # ログファイルのパスをUIに表示
+
+    yield (
+        log_output, step0_status, step1_status, step2_status, step3_status, step4_status,
+        final_fbx_path_ui, log_file_path_ui, gr.Button(interactive=False)
     )
 
+    # Step 0: Asset Preservation
+    s0_success, s0_log, s0_metadata_path, s0_ui_msg = call_step0_preserve_assets(model_name, progress)
+    log_output += f"{s0_ui_msg}\n"
+    step0_status = "成功" if s0_success else "失敗"
+    yield log_output, step0_status, step1_status, step2_status, step3_status, step4_status, final_fbx_path_ui, log_file_path_ui, gr.Button(interactive=False)
+    if not s0_success:
+        log_output += "ステップ0でエラーが発生したため、パイプラインを停止します。\n"
+        yield log_output, step0_status, step1_status, step2_status, step3_status, step4_status, final_fbx_path_ui, log_file_path_ui, gr.Button(interactive=True)
+        return
+
+    # Step 1: Extract Mesh
+    s1_success, s1_log, s1_npz_path, s1_ui_msg = call_step1_extract_mesh(model_name, progress)
+    log_output += f"{s1_ui_msg}\n"
+    step1_status = "成功" if s1_success else "失敗"
+    yield log_output, step0_status, step1_status, step2_status, step3_status, step4_status, final_fbx_path_ui, log_file_path_ui, gr.Button(interactive=False)
+    if not s1_success:
+        log_output += "ステップ1でエラーが発生したため、パイプラインを停止します。\n"
+        yield log_output, step0_status, step1_status, step2_status, step3_status, step4_status, final_fbx_path_ui, log_file_path_ui, gr.Button(interactive=True)
+        return
+
+    # Step 2: Generate Skeleton
+    s2_success, s2_log, s2_fbx_path, s2_npz_path, s2_ui_msg = call_step2_generate_skeleton(model_name, gender, progress)
+    log_output += f"{s2_ui_msg}\n"
+    step2_status = "成功" if s2_success else "失敗"
+    yield log_output, step0_status, step1_status, step2_status, step3_status, step4_status, final_fbx_path_ui, log_file_path_ui, gr.Button(interactive=False)
+    if not s2_success:
+        log_output += "ステップ2でエラーが発生したため、パイプラインを停止します。\n"
+        yield log_output, step0_status, step1_status, step2_status, step3_status, step4_status, final_fbx_path_ui, log_file_path_ui, gr.Button(interactive=True)
+        return
+
+    # Step 3: Apply Skinning
+    s3_success, s3_log, s3_skinned_fbx_path, s3_ui_msg = call_step3_apply_skinning(model_name, progress)
+    log_output += f"{s3_ui_msg}\n"
+    step3_status = "成功" if s3_success else "失敗"
+    yield log_output, step0_status, step1_status, step2_status, step3_status, step4_status, final_fbx_path_ui, log_file_path_ui, gr.Button(interactive=False)
+    if not s3_success:
+        log_output += "ステップ3でエラーが発生したため、パイプラインを停止します。\n"
+        yield log_output, step0_status, step1_status, step2_status, step3_status, step4_status, final_fbx_path_ui, log_file_path_ui, gr.Button(interactive=True)
+        return
+
+    # Step 4: Merge Textures
+    s4_success, s4_log, s4_final_fbx_path, s4_ui_msg = call_step4_merge_textures(model_name, use_step4_v2, progress)
+    log_output += f"{s4_ui_msg}\n"
+    step4_status = "成功" if s4_success else "失敗"
+    if s4_success and s4_final_fbx_path:
+        final_fbx_path_ui = str(s4_final_fbx_path)
+        log_output += f"最終出力ファイル: {final_fbx_path_ui}\n"
+    
+    log_output += "パイプライン完了。\n"
+    yield log_output, step0_status, step1_status, step2_status, step3_status, step4_status, final_fbx_path_ui, log_file_path_ui, gr.Button(interactive=True)
+
+# --- Gradio UI ---
 if __name__ == "__main__":
-    main()
+    # グローバルロガー設定 (app.py実行時に一度だけ行う)
+    app_logger = logging.getLogger("UniRigApp")
+    app_logger.setLevel(logging.DEBUG) # グローバルロガーのレベル
+    app_logger.handlers = [] # 既存のハンドラをクリア (再実行時の重複防止)
+    
+    # stdoutハンドラをグローバルロガーに追加
+    global_stdout_handler = logging.StreamHandler(sys.stdout)
+    global_formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    global_stdout_handler.setFormatter(global_formatter)
+    global_stdout_handler.setLevel(logging.INFO) # コンソールはINFO以上
+    app_logger.addHandler(global_stdout_handler)
+    app_logger.propagate = False # 親ロガーへの伝播はしない
+
+    app_logger.info("アプリケーションロガーを初期化しました。")
+
+    # ポートが利用可能か確認
+    gradio_port = 7861 # 変更: ポート番号を7861に変更
+    # check_port_periodically(gradio_port) # 起動前にチェック
+
+    with gr.Blocks(theme=gr.themes.Soft()) as demo:
+        gr.Markdown("# UniRig 自動リギングシステム (データフロー改修版)")
+        
+        with gr.Row():
+            with gr.Column(scale=1):
+                file_input = gr.File(label="3Dモデルファイル (FBX, GLB, etc.)", type="filepath")
+                gender_dropdown = gr.Dropdown(label="性別 (スケルトン生成用)", choices=["neutral", "male", "female"], value="neutral")
+                use_step4_v2_checkbox = gr.Checkbox(label="Step4: テクスチャ統合 v2 を使用 (推奨)", value=True)
+                run_button = gr.Button("パイプライン実行", variant="primary", interactive=True)
+            
+            with gr.Column(scale=2):
+                gr.Markdown("### パイプライン進捗")
+                log_output_textbox = gr.Textbox(label="ログ出力", lines=15, max_lines=30, autoscroll=True, show_copy_button=True)
+                
+                with gr.Row():
+                    step0_status_textbox = gr.Textbox(label="Step0: アセット保存", value="待機中", interactive=False)
+                    step1_status_textbox = gr.Textbox(label="Step1: メッシュ抽出", value="待機中", interactive=False)
+                with gr.Row():
+                    step2_status_textbox = gr.Textbox(label="Step2: スケルトン生成", value="待機中", interactive=False)
+                    step3_status_textbox = gr.Textbox(label="Step3: スキニング", value="待機中", interactive=False)
+                with gr.Row():
+                    step4_status_textbox = gr.Textbox(label="Step4: テクスチャ統合", value="待機中", interactive=False)
+
+                final_fbx_path_textbox = gr.Textbox(label="最終FBXファイルパス", value="", interactive=False, show_copy_button=True)
+                log_file_path_textbox = gr.Textbox(label="モデル別ログファイルパス", value="", interactive=False, show_copy_button=True)
+
+        run_button.click(
+            fn=call_pipeline,
+            inputs=[file_input, gender_dropdown, use_step4_v2_checkbox],
+            outputs=[
+                log_output_textbox, 
+                step0_status_textbox, step1_status_textbox, step2_status_textbox, 
+                step3_status_textbox, step4_status_textbox,
+                final_fbx_path_textbox, log_file_path_textbox,
+                run_button # ボタンのインタラクティブ状態を更新
+            ]
+        )
+
+    app_logger.info(f"Gradioアプリケーションをポート {gradio_port} で起動します。")
+    # demo.queue().launch(share=True, server_port=gradio_port, prevent_thread_lock=True)
+    # prevent_thread_lock=True はGradioのバージョンによっては不要/エラーになる可能性あり
+    # share=True は外部公開用。ローカルテストでは不要な場合も。
+    demo.queue().launch(server_port=gradio_port)
+    app_logger.info("Gradioアプリケーションが終了しました。")
