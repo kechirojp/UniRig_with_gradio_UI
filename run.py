@@ -34,21 +34,54 @@ run_logger = logging.getLogger(__name__) # Specific logger for this module
 os.environ['PYOPENGL_PLATFORM'] = 'osmesa'
 # print(f"PYOPENGL_PLATFORM in run.py (set): {os.environ.get('PYOPENGL_PLATFORM')}") # Commented out for cleaner logs
 
-def load(task: str, path: str) -> Box:
-    if path.endswith('.yaml'):
-        path = path.removesuffix('.yaml')
-    path += '.yaml'
+def load(task_category: str, config_identifier: str) -> Box:
+    # Ensure it ends with .yaml
+    if not config_identifier.endswith('.yaml'):
+        config_identifier += '.yaml'
+
+    # Determine the final config path
+    # Assumes config_identifier could be:
+    # 1. A full path like "configs/task/file.yaml"
+    # 2. A path relative to "configs/" like "task/file.yaml"
+    # 3. Just a filename like "file.yaml", to be found under "configs/<task_category>/"
     
-    # Build the correct config path
-    if task == 'task':
-        config_path = os.path.join('configs', 'task', path)
+    path_obj = Path(config_identifier)
+
+    if path_obj.parts[0] == 'configs':
+        # Case 1: Already a full path from project root starting with "configs/"
+        config_path = path_obj
+    elif len(path_obj.parts) > 1 and path_obj.parts[0] == task_category:
+        # Case 2: Path like "task/file.yaml", relative to "configs/"
+        # This means config_identifier was like "task/specific_task.yaml"
+        # and task_category was "task".
+        config_path = Path('configs') / path_obj
     else:
-        config_path = os.path.join('configs', task, path)
+        # Case 3: Just a filename like "specific_task.yaml"
+        # Or potentially "task_category/specific_task.yaml" where task_category in path_obj.parts[0]
+        # was not the same as the passed task_category argument.
+        # For safety, we assume it's a filename and prepend "configs/<task_category>/"
+        config_path = Path('configs') / task_category / path_obj.name
     
-    run_logger.info(f"Loading {task} config: {config_path}")
-    with open(config_path, 'r') as f:
-        config_data = yaml.safe_load(f)
-    return Box(config_data)
+    run_logger.info(f"Attempting to load {task_category} config from: {config_path}")
+    try:
+        with open(config_path, 'r') as f:
+            config_data = yaml.safe_load(f)
+        return Box(config_data)
+    except FileNotFoundError:
+        run_logger.error(f"Config file not found at {config_path}. Original identifier: {config_identifier}, category: {task_category}")
+        # Try an alternative if original path was "configs/task/file.yaml"
+        if config_identifier.startswith("configs/task/"):
+            alt_path_name = Path(config_identifier).name
+            alt_config_path = Path('configs') / task_category / alt_path_name
+            run_logger.info(f"Attempting alternative path: {alt_config_path}")
+            try:
+                with open(alt_config_path, 'r') as f:
+                    config_data = yaml.safe_load(f)
+                return Box(config_data)
+            except FileNotFoundError:
+                run_logger.error(f"Alternative config file not found at {alt_config_path}.")
+                raise
+        raise
 
 def nullable_string(val):
     if not val:
@@ -85,35 +118,85 @@ if __name__ == "__main__":
     mode = task_config.mode
     assert mode in ['predict'], f"Mode must be 'predict', got {mode}"
     
+    files_to_process_directly = [] # 変更: files リストの名前を変更し、初期化
+
     if args.input is not None or args.input_dir is not None:
         assert args.output_dir is not None or args.output is not None, 'output or output_dir must be specified'
-        assert args.npz_dir is not None, 'npz_dir must be specified'
-        
+        # assert args.npz_dir is not None, 'npz_dir must be specified' # npz_dirは常に指定されるとは限らない
+
         if args.input and args.input.endswith('.npz'):
             run_logger.info(f"Using pre-processed NPZ file: {args.input}")
-            files = [os.path.dirname(args.input)] 
-        elif args.input_dir and os.path.exists(os.path.join(args.input_dir, task_config.components.data_name)):
-            run_logger.info(f"Using pre-processed NPZ directory: {args.input_dir}")
-            files = [args.input_dir]
-        else:
-            run_logger.info("Extracting files...")
+            # files_to_process_directly = [os.path.dirname(args.input)] # 以前のロジック
+            files_to_process_directly = [args.input] # NPZファイルそのものをリストに
+        elif args.input_dir: # input_dir が指定されている場合
+            # task_config.components.data_name (e.g., raw_data.npz) が input_dir にあるか確認
+            potential_npz_path = Path(args.input_dir) / task_config.components.data_name
+            if potential_npz_path.exists():
+                run_logger.info(f"Found {task_config.components.data_name} in input_dir: {potential_npz_path}")
+                files_to_process_directly = [str(potential_npz_path)]
+            else:
+                run_logger.info(f"{task_config.components.data_name} not found in input_dir {args.input_dir}. Extracting files...")
+                # input_dir からファイルを抽出する元のロジック
+                files_info = get_files(
+                    data_name=task_config.components.data_name,
+                    inputs=args.input, # input も考慮に入れる
+                    input_dataset_dir=args.input_dir,
+                    output_dataset_dir=args.npz_dir if args.npz_dir else args.input_dir, # npz_dir がなければ input_dir に出力
+                    force_override=True,
+                    warning=False,
+                )
+                files_to_process_directly = [f_info[1] for f_info in files_info] # 抽出されたNPZファイルのパス
+        elif args.input: # input が指定され、NPZではない場合 (例: .glb)
+            run_logger.info(f"Input file specified for extraction: {args.input}")
             files_info = get_files(
                 data_name=task_config.components.data_name,
                 inputs=args.input,
-                input_dataset_dir=args.input_dir,
-                output_dataset_dir=args.npz_dir,
+                input_dataset_dir=None, # input_dir は使わない
+                output_dataset_dir=args.npz_dir if args.npz_dir else '.', # npz_dir がなければカレントディレクトリ
                 force_override=True,
                 warning=False,
             )
-            files = [f_info[1] for f_info in files_info]
-            run_logger.info(f"Files to process: {files}")
+            files_to_process_directly = [f_info[1] for f_info in files_info]
+        
+        run_logger.info(f"Files to process directly: {files_to_process_directly}")
             
-        if len(files) > 1 and args.output is not None:
+        if len(files_to_process_directly) > 1 and args.output is not None:
             run_logger.warning("Output is specified, but multiple files are detected. Output will be written for each.")
-        datapath = Datapath(files=files, cls=args.cls)
+        
+        # Datapath の初期化方法を変更
+        # files_to_process_directly はNPZファイルのフルパスのリストを期待
+        # Datapath はディレクトリのリストを期待するので、
+        # ここでは files_to_process_directly の親ディレクトリを使うか、Datapath のロジック修正が必要
+        
+        # 一時的な対応として、files_to_process_directly が空でなければ、その親ディレクトリを datapath に渡す
+        if files_to_process_directly:
+            # files_to_process_directly の各要素はNPZファイルのフルパスのはず
+            # Datapath はディレクトリのリストを期待するので、各NPZファイルの親ディレクトリのリストを作成
+            # ただし、重複を避けるために set を使用
+            directories_for_datapath = list(set([str(Path(f).parent) for f in files_to_process_directly]))
+            datapath = Datapath(files=directories_for_datapath, cls=args.cls)
+            run_logger.info(f"Datapath initialized with directories: {directories_for_datapath}")
+        else:
+            datapath = None
+            run_logger.info("No files to process directly, datapath is None.")
+
+    elif args.npz_dir and not files_to_process_directly: # --input, --input_dir がなく、--npz_dir がある場合
+        # このケースはStep2の呼び出し方に合致する
+        # npz_dir 内の task_config.components.data_name (raw_data.npz) を処理対象とする
+        potential_npz_in_npz_dir = Path(args.npz_dir) / task_config.components.data_name
+        if potential_npz_in_npz_dir.exists():
+            run_logger.info(f"Found {task_config.components.data_name} in npz_dir: {potential_npz_in_npz_dir}")
+            # Datapath はディレクトリを期待するので、npz_dir を渡す
+            datapath = Datapath(files=[args.npz_dir], cls=args.cls)
+            run_logger.info(f"Datapath initialized with npz_dir: {args.npz_dir}")
+            # files_to_process_directly にも追加しておく（後段の処理で使われる場合のため）
+            files_to_process_directly.append(str(potential_npz_in_npz_dir))
+        else:
+            datapath = None
+            run_logger.warning(f"{task_config.components.data_name} not found in npz_dir {args.npz_dir}. Datapath is None.")
     else:
         datapath = None
-        run_logger.info("No input files specified, datapath is None.")
+        run_logger.info("No input files or npz_dir specified for direct processing, datapath is None.")
     
     data_config = load('data', task_config.components.data)
     transform_config = load('transform', task_config.components.transform)
@@ -226,7 +309,7 @@ if __name__ == "__main__":
         resume_from_checkpoint = download(resume_from_checkpoint)
         run_logger.info(f"Checkpoint to resume from: {resume_from_checkpoint}")
     else:
-        run_logger.warning("No checkpoint specified to resume from for prediction.")
+        run_logger.warning("No checkpoint specified to resume from for prediction mode.")
 
     trainer = L.Trainer(
         callbacks=callbacks_list,

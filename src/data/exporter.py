@@ -782,38 +782,3 @@ def _scale_to_m(r: ndarray):
     m[2, 2] = r
     m[3, 3] = 1.
     return m
-
-def _safe_deselect_all_objects(self):
-        """
-        Safe object deselection method for Blender 4.2 compatibility
-        """
-        import bpy
-        try:
-            # Method 1: Try standard selected_objects approach
-            for o in bpy.context.selected_objects:
-                o.select_set(False)
-            print("✅ Standard deselection successful")
-        except AttributeError:
-            try:
-                # Method 2: Use view_layer fallback for Blender 4.2
-                print("⚠️ Blender 4.2 Context: Using view_layer fallback for deselection")
-                for o in bpy.context.view_layer.objects:
-                    if o.select_get():
-                        o.select_set(False)
-                print("✅ View layer deselection successful")
-            except Exception as e:
-                try:
-                    # Method 3: Direct iteration through all objects
-                    print(f"⚠️ View layer fallback failed: {e}")
-                    print("🔄 Using direct object iteration deselection")
-                    for o in bpy.data.objects:
-                        o.select_set(False)
-                    print("✅ Direct object deselection successful")
-                except Exception as final_error:
-                    print(f"❌ All deselection methods failed: {final_error}")
-        
-        # Additional safety: Clear active object
-        try:
-            bpy.context.view_layer.objects.active = None
-        except:
-            pass

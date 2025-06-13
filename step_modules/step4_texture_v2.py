@@ -126,8 +126,8 @@ class Step4TextureV2:
     def _create_binary_fbx_blender(self, skinned_fbx: str, texture_files: Dict[str, str], output_path: Path) -> Dict:
         """Blenderを使用してバイナリFBX生成（改良版）"""
         try:
-            # より安全なBlenderスクリプト
-            blender_script = f'''
+            # より安全なBlenderスクリプト - .format()メソッドを使用
+            blender_script = """
 import bpy
 import sys
 import os
@@ -142,8 +142,8 @@ def safe_blender_export():
         bpy.ops.wm.read_factory_settings(use_empty=True)
         
         # FBXファイル存在確認
-        input_fbx = "{skinned_fbx}"
-        output_fbx = "{output_path}"
+        input_fbx = "{skinned_fbx_path}"
+        output_fbx = "{output_fbx_path}"
         
         print(f"🔄 入力FBX確認: {{input_fbx}}")
         if not os.path.exists(input_fbx):
@@ -256,7 +256,10 @@ def safe_blender_export():
 if __name__ == "__main__":
     success = safe_blender_export()
     sys.exit(0 if success else 1)
-'''
+""".format(
+                skinned_fbx_path=skinned_fbx,
+                output_fbx_path=str(output_path)
+            )
             
             # Blenderスクリプトファイル作成
             script_path = self.output_dir / "blender_export_v2.py"

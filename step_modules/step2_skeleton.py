@@ -352,12 +352,12 @@ class Step2Skeleton:
             # face_count = len(faces) if faces is not None else vertex_count // 2 # 簡略化
 
             # 頂点数に基づく単純なスケーリングルール（調整が必要）
-            if vertex_count < 1000: estimated_bones = 20  # 매우 단순
-            elif vertex_count < 5000: estimated_bones = 30 # 단순 (e.g., low-poly human)
-            elif vertex_count < 15000: estimated_bones = 50 # 표준 (e.g., bird, standard human)
-            elif vertex_count < 50000: estimated_bones = 70 # 복잡 (e.g., winged creature)
-            elif vertex_count < 100000: estimated_bones = 100 # 매우 복잡 (e.g., detailed monster)
-            else: estimated_bones = min(150, max(120, vertex_count // 1000)) # 초고복잡
+            if vertex_count < 1000: estimated_bones = 20  # 非常に単純
+            elif vertex_count < 5000: estimated_bones = 30 # 単純 (e.g., low-poly human)
+            elif vertex_count < 15000: estimated_bones = 50 # 標準 (e.g., bird, standard human)
+            elif vertex_count < 50000: estimated_bones = 70 # 複雑 (e.g., winged creature)
+            elif vertex_count < 100000: estimated_bones = 100 # 非常に複雑 (e.g., detailed monster)
+            else: estimated_bones = min(150, max(120, vertex_count // 1000)) # 超高複雑
             
             self.logger.info(f"メッシュデータからのボーン数推定: 頂点数={vertex_count} -> 推定ボーン数={estimated_bones}")
             return estimated_bones

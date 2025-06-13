@@ -23,7 +23,7 @@ class Step4Texture:
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(exist_ok=True)
         
-    def merge_textures(self, skinned_fbx: str, original_model: str, model_name: str, metadata_file: str = None) -> Tuple[bool, str, Dict]:
+    def merge_textures(self, skinned_fbx: str, original_model: str, model_name: str, metadata_file: Optional[str] = None) -> Tuple[bool, str, Dict]: # metadata_file is Optional
         """
         テクスチャ統合の実行（大元フロー互換化 - merge.sh規則対応）
         
@@ -31,72 +31,59 @@ class Step4Texture:
             skinned_fbx: 入力リギング済みFBXファイルパス（merge.sh --target相当）
             original_model: オリジナル3Dモデルファイルパス（merge.sh --source相当）
             model_name: モデル名（出力ファイル名に使用）
-            metadata_file: Step0で保存されたメタデータファイルパス
+            metadata_file: Step0で保存されたアセットメタデータJSONファイルパス (Optional)
             
         Returns:
             (success, logs, output_files)
         """
         try:
-            logger.info(f"Step 4 開始（大元フロー互換）: target={skinned_fbx}, source={original_model} → {model_name}")
+            logger.info(f"Step 4 開始: target={skinned_fbx}, source={original_model} → {model_name}")
+            logger.info(f"提供されたメタデータファイル: {metadata_file}")
             
             # 入力データの検証
-            if not self._validate_input_files(skinned_fbx, original_model):
-                return False, "入力ファイルの検証に失敗", {}
+            if not self._validate_input_files(skinned_fbx, original_model):\
+                return False, "入力ファイルの検証に失敗しました。", {}
             
-            # 大元フロー（merge.sh）規則での実行
-            success, logs, output_files = self._execute_native_merge_flow(
+            # 優先: 大元フロー（merge.sh）規則での実行
+            logger.info("優先処理: 大元フロー（merge.sh）によるテクスチャ統合を試みます。")
+            success_native, logs_native, output_files_native = self._execute_native_merge_flow(
                 source=original_model,  # オリジナルモデル（テクスチャ付き）
                 target=skinned_fbx,     # リギング済みモデル（テクスチャなし）
                 model_name=model_name
             )
             
-            if success:
-                logger.info("大元フロー互換テクスチャ統合成功")
-                return success, logs, output_files
+            if success_native:
+                logger.info("大元フロー（merge.sh）によるテクスチャ統合に成功しました。")
+                return success_native, logs_native, output_files_native
             else:
-                logger.warning(f"大元フロー失敗、拡張実装フォールバック: {logs}")
-                
-            # フォールバック: 拡張テクスチャ復元実装
-            enhanced_metadata_file = self._find_enhanced_metadata(model_name)
-            
-            if enhanced_metadata_file and os.path.exists(enhanced_metadata_file):
-                logger.info(f"拡張メタデータファイルを発見: {enhanced_metadata_file}")
-                return self._complete_texture_restoration(skinned_fbx, enhanced_metadata_file, model_name)
+                logger.warning(f"大元フロー（merge.sh）によるテクスチャ統合に失敗しました。ログ: {logs_native}")
+                logger.info("フォールバック処理に移行します。")
+
+            # フォールバック1: 拡張テクスチャ復元実装 (渡されたメタデータファイルを使用)
+            if metadata_file and Path(metadata_file).exists():
+                logger.info(f"フォールバック1: 提供されたメタデータファイル ({metadata_file}) を使用したテクスチャ復元を試みます。")
+                success_enhanced, logs_enhanced, output_files_enhanced = self._complete_texture_restoration(
+                    skinned_fbx=skinned_fbx,
+                    metadata_file=metadata_file,
+                    model_name=model_name
+                )
+                if success_enhanced:
+                    logger.info("提供されたメタデータを使用したテクスチャ復元に成功しました。")
+                    return success_enhanced, logs_enhanced, output_files_enhanced
+                else:
+                    logger.warning(f"提供されたメタデータ ({metadata_file}) を使用したテクスチャ復元に失敗しました。ログ: {logs_enhanced}")
             else:
-                logger.warning("拡張メタデータが見つからない、従来フォールバック実行")
-                return self._fallback_texture_merge(skinned_fbx, original_model, model_name, metadata_file)
+                logger.warning("フォールバック1: 有効なメタデータファイルが提供されなかったか、存在しません。拡張テクスチャ復元をスキップします。")
+
+            # フォールバック2: 基本的なテクスチャ統合（モックに近い）
+            logger.warning("フォールバック2: 基本的なテクスチャ統合処理を実行します。")
+            return self._fallback_texture_merge(skinned_fbx, original_model, model_name, metadata_file)
                 
         except Exception as e:
-            error_msg = f"Step 4 テクスチャ統合エラー: {e}"
-            logger.error(error_msg)
+            error_msg = f"Step 4 テクスチャ統合中に予期せぬエラーが発生しました: {e}"
+            logger.error(error_msg, exc_info=True) # スタックトレースも記録
             return False, error_msg, {}
-    
-    def _find_enhanced_metadata(self, model_name: str) -> Optional[str]:
-        """Step0で抽出された拡張メタデータファイルを検索"""
-        # 拡張メタデータの検索パターン
-        search_patterns = [
-            f"/app/pipeline_work/00_asset_preservation_enhanced/{model_name}_texture_test/{model_name}_texture_test_enhanced_metadata.json",
-            f"/app/pipeline_work/00_asset_preservation_enhanced/bird_texture_test/bird_texture_test_enhanced_metadata.json",
-            f"/app/pipeline_work/00_asset_preservation_enhanced/tokura_texture_test/tokura_texture_test_enhanced_metadata.json"
-        ]
-        
-        for pattern in search_patterns:
-            if os.path.exists(pattern):
-                logger.info(f"拡張メタデータ発見: {pattern}")
-                return pattern
-        
-        # 追加検索: 00_asset_preservation_enhanced ディレクトリ内を検索
-        try:
-            base_dir = Path("/app/pipeline_work/00_asset_preservation_enhanced")
-            if base_dir.exists():
-                for metadata_file in base_dir.rglob("*enhanced_metadata.json"):
-                    logger.info(f"候補メタデータ発見: {metadata_file}")
-                    return str(metadata_file)
-        except Exception as e:
-            logger.warning(f"拡張メタデータ検索エラー: {e}")
-        
-        return None
-    
+
     def _complete_texture_restoration(self, skinned_fbx: str, metadata_file: str, model_name: str) -> Tuple[bool, str, Dict]:
         """
         完全なテクスチャ復元を実行（テストスクリプトの統合版）
@@ -393,8 +380,7 @@ Step 4 (完全テクスチャ復元) 完了:
             logger.error(f"完全テクスチャ復元エラー: {e}")
             return self._fallback_texture_merge(skinned_fbx, "", model_name, None)
     
-    def _fallback_texture_merge(self, skinned_fbx: str, original_model: str, model_name: str, metadata_file: str) -> Tuple[bool, str, Dict]:
-        """フォールバック: 基本的なテクスチャ統合"""
+    def _fallback_texture_merge(self, skinned_fbx: str, original_model: str, model_name: str, metadata_file: Optional[str]) -> Tuple[bool, str, Dict]: # metadata_file is Optional
         logger.info("Step 4 フォールバック（基本実装）を実行中...")
         
         # 出力ファイルパス
@@ -462,16 +448,13 @@ Step 4 (テクスチャ統合) 完了:
             
         return True
     
-    def _load_metadata(self, metadata_file: str) -> Dict:
-        """メタデータの読み込み"""
+    def _load_metadata(self, metadata_file: Optional[str]) -> Dict: # metadata_file is Optional
+        if not metadata_file or not os.path.exists(metadata_file):
+            logger.warning(f"メタデータファイルが見つからないか、無効です: {metadata_file}")
+            return {}
         try:
-            if not metadata_file or not os.path.exists(metadata_file):
-                logger.warning(f"メタデータファイルが見つかりません: {metadata_file}")
-                return {}
-                
             with open(metadata_file, 'r', encoding='utf-8') as f:
                 return json.load(f)
-                
         except Exception as e:
             logger.error(f"メタデータ読み込みエラー: {e}")
             return {}
@@ -779,19 +762,88 @@ FBX形式: {'✅ バイナリ形式 (Blender互換)' if export_method == 'blende
             return False, error_msg, {}
     
 # モジュール実行関数（app.pyから呼び出される）
-def execute_step4(skinned_fbx: str, original_model: str, model_name: str, output_dir: Path, metadata_file: str = None) -> Tuple[bool, str, Dict]:
+def execute_step4(skinned_fbx: str, original_model: str, model_name: str, output_dir: Path, metadata_file: Optional[str] = None) -> Tuple[bool, str, Dict]: # metadata_file is Optional
     """
     Step 4実行のエントリーポイント
     
     Args:
-        skinned_fbx: 入力リギング済みFBXファイルパス
-        original_model: オリジナル3Dモデルファイルパス
+        skinned_fbx: リギング済みFBXファイルパス
+        original_model: オリジナルモデルファイルパス
         model_name: モデル名
         output_dir: 出力ディレクトリ
-        metadata_file: Step1で保存されたメタデータファイルパス
+        metadata_file: Step0アセットメタデータJSONファイルパス (Optional)
         
     Returns:
         (success, logs, output_files)
     """
-    merger = Step4Texture(output_dir)
-    return merger.merge_textures(skinned_fbx, original_model, model_name, metadata_file)
+    try:
+        merger = Step4Texture(output_dir)
+        return merger.merge_textures(skinned_fbx, original_model, model_name, metadata_file)
+    except Exception as e:
+        error_msg = f"Step 4 実行エラー: {e}"
+        logger.error(error_msg)
+        return False, error_msg, {}
+
+if __name__ == '__main__':
+    print("--- Running Step 4: Texture Integration Test ---")
+
+    # テスト設定
+    test_model_name = "bird_step4_test"
+    base_test_dir = Path(f"/app/pipeline_work_test_step4/{test_model_name}")
+    
+    # Step出力ディレクトリ構造を模倣
+    step0_output_dir = base_test_dir / "00_asset_preservation"
+    step3_output_dir = base_test_dir / "03_skinned_model"
+    step4_output_dir = base_test_dir / "04_final_output"
+
+    step0_output_dir.mkdir(parents=True, exist_ok=True)
+    step3_output_dir.mkdir(parents=True, exist_ok=True)
+    step4_output_dir.mkdir(parents=True, exist_ok=True)
+
+    # ダミー入力ファイル作成
+    dummy_original_model = step0_output_dir / f"{test_model_name}_original.glb"
+    dummy_skinned_fbx = step3_output_dir / f"{test_model_name}_skinned.fbx"
+    dummy_metadata_file = step0_output_dir / f"{test_model_name}_asset_metadata.json"
+
+    with open(dummy_original_model, 'w') as f: f.write("dummy glb")
+    with open(dummy_skinned_fbx, 'w') as f: f.write("dummy fbx")
+    
+    # ダミーメタデータ作成 (Step0の出力形式を模倣)
+    dummy_meta_content = {
+        "model_name": test_model_name,
+        "original_file_path": str(dummy_original_model),
+        "asset_data": { # _complete_texture_restoration が期待する構造
+            "materials": [{"name": "TestMaterial", "use_nodes": True, "node_tree": {"nodes": [], "links": []}}],
+            "textures": [{"texture_file_path": "dummy_texture.png", "original_name": "dummy_texture.png"}],
+            "objects": [{"material_slots": [{"material_name": "TestMaterial"}]}]
+        },
+        "preserved_textures_relative_dir": "textures" # Step0の出力に含まれるキー
+    }
+    with open(dummy_metadata_file, 'w') as f: json.dump(dummy_meta_content, f, indent=2)
+    
+    # ダミーテクスチャファイル作成 (メタデータで参照される)
+    dummy_textures_dir = step0_output_dir / "textures"
+    dummy_textures_dir.mkdir(exist_ok=True)
+    with open(dummy_textures_dir / "dummy_texture.png", 'w') as f: f.write("dummy texture data")
+
+    print(f"テスト用オリジナルモデル: {dummy_original_model}")
+    print(f"テスト用スキニング済みFBX: {dummy_skinned_fbx}")
+    print(f"テスト用メタデータファイル: {dummy_metadata_file}")
+    print(f"テスト用出力ディレクトリ: {step4_output_dir}")
+
+    # execute_step4 を呼び出し
+    success, logs, files = execute_step4(
+        skinned_fbx=str(dummy_skinned_fbx),
+        original_model=str(dummy_original_model),
+        model_name=test_model_name,
+        output_dir=step4_output_dir,
+        metadata_file=str(dummy_metadata_file) # メタデータファイルを渡す
+    )
+
+    print("\\n--- Test Execution Result ---")
+    print(f"成功: {success}")
+    print("ログ:")
+    print(logs)
+    print("出力ファイル:")
+    for key, value in files.items():
+        print(f"  {key}: {value}")

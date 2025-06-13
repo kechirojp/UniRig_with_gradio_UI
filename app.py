@@ -28,13 +28,14 @@ import socket
 import sys
 
 # ステップモジュールのインポート
-from step_modules.step0_asset_preservation import Step0AssetPreservation
+from step_modules.step0_asset_preservation import Step0FileTransfer
 from step_modules.step1_extract import Step1Extract
 from step_modules.step2_skeleton import Step2Skeleton
 from step_modules.step3_skinning import Step3Skinning # 標準的なスキニング
 from step_modules.step3_skinning_unirig import Step3UniRigSkinning # UniRig独自のスキニング
 from step_modules.step4_texture import Step4Texture
-from step_modules.step4_texture_v2 import Step4TextureV2
+from step_modules.step4_merge import Step4Merge  # 新Step4: マージ特化
+from step_modules.step5_blender_integration import Step5BlenderIntegration  # 新Step5
 
 # 定数
 PIPELINE_BASE_DIR = Path("/app/pipeline_work")
@@ -52,6 +53,7 @@ STEP_SUBDIR_NAMES = {
     "step2_skeleton": "02_skeleton",
     "step3_skinning": "03_skinning",
     "step4_merge": "04_merge",
+    "step5_blender_integration": "05_blender_integration",  # 新追加
     "output": "output", # Final output if distinct
 }
 
@@ -247,13 +249,13 @@ def call_step0_preserve_assets(model_name: str, progress: gr.Progress):
     output_dir_step0 = file_manager.get_step_output_dir("step0_asset_preservation")
     
     try:
-        step0_processor = Step0AssetPreservation(
+        step0_processor = Step0FileTransfer(
             model_name=model_name,
             input_file=str(input_file_path),
             output_dir=str(output_dir_step0),
             logger_instance=file_manager.model_specific_logger
         )
-        success, logs, outputs = step0_processor.preserve_assets()
+        success, logs, outputs = step0_processor.transfer_file()
 
         status = "success" if success else "error"
         message = logs if logs else ("正常完了" if success else "エラー発生")
@@ -419,13 +421,12 @@ def call_step3_apply_skinning(model_name: str, skinning_type: str, progress: gr.
                 output_dir=Path(output_dir_step3),
                 logger_instance=file_manager.model_specific_logger
             )
-            original_model_path = file_manager.get_uploaded_file_path(original_filename)
-            skeleton_dir_path = file_manager.get_step_output_dir("step2_skeleton") # Step2の出力ディレクトリ
+            # 正しい引数でUniRigスキニングを呼び出し
             success, logs, outputs = step3_processor.apply_skinning(
-                model_name=model_name,
-                original_model_path=original_model_path,
-                skeleton_dir=skeleton_dir_path, # NPZとFBXが含まれるディレクトリ
-                # unirig_core_output_dir はモジュール内で output_dir をベースに設定される
+                input_mesh_npz_path=mesh_file_path,
+                input_skeleton_fbx_path=skeleton_fbx_path,
+                input_skeleton_npz_path=skeleton_npz_path,
+                model_name=model_name
             )
         else: # Standard (or other types)
             step3_processor = Step3Skinning(
@@ -433,10 +434,10 @@ def call_step3_apply_skinning(model_name: str, skinning_type: str, progress: gr.
                 logger_instance=file_manager.model_specific_logger
             )
             success, logs, outputs = step3_processor.apply_skinning(
-                model_name=model_name,
-                mesh_file_path=mesh_file_path,
-                skeleton_fbx_path=skeleton_fbx_path,
-                skeleton_npz_path=skeleton_npz_path # 標準スキニングはNPZファイルパスを期待
+                input_mesh_npz_path=mesh_file_path,
+                input_skeleton_fbx_path=skeleton_fbx_path,
+                input_skeleton_npz_path=skeleton_npz_path,
+                model_name=model_name
             )
         
         status = "success" if success else "error"
@@ -451,259 +452,397 @@ def call_step3_apply_skinning(model_name: str, skinning_type: str, progress: gr.
         file_manager.mark_step_complete("step3_skinning", {"status": "error", "message": error_msg, "error": str(e)})
         return False, error_msg, None, f"エラー: {error_msg}"
 
-def call_step4_merge_textures(model_name: str, use_v2_texture_merge: bool, progress: gr.Progress):
-    progress(0.85, desc="ステップ4: テクスチャ統合中...")
+def call_step4_merge_skeleton_skinning(model_name: str, progress: gr.Progress):
+    """Step 4: スケルトン・スキンウェイトマージ（特化機能）"""
+    progress(0.75, desc="ステップ4: スケルトン・スキンウェイトマージ中...")
     file_manager = FileManager(model_name)
     pipeline_state = file_manager.load_pipeline_state()
-    original_filename = pipeline_state.get("original_filename")
-
-    step0_outputs = pipeline_state.get("step0_asset_preservation", {}).get("outputs", {})
-    asset_metadata_path_str = step0_outputs.get("asset_metadata_json")
-
+    
+    # 入力ファイルの検証
+    step1_outputs = pipeline_state.get("step1_extract", {}).get("outputs", {})
+    step2_outputs = pipeline_state.get("step2_skeleton", {}).get("outputs", {})
     step3_outputs = pipeline_state.get("step3_skinning", {}).get("outputs", {})
-    skinned_fbx_path_str = step3_outputs.get("skinned_fbx")
-
-    if not all([asset_metadata_path_str, skinned_fbx_path_str, original_filename]):
-        missing = []
-        if not asset_metadata_path_str: missing.append("アセットメタデータJSON(Step0)")
-        if not skinned_fbx_path_str: missing.append("スキニング済みFBX(Step3)")
-        if not original_filename: missing.append("元のモデルファイル名")
-        error_msg = f"ステップ4エラー: 必要な入力情報が見つかりません ({', '.join(missing)})。"
+    
+    if not all([step1_outputs, step2_outputs, step3_outputs]):
+        error_msg = "Step 4エラー: 前のステップの出力が不足しています"
         file_manager.model_specific_logger.error(error_msg)
-        file_manager.mark_step_complete("step4_texture", {"status": "error", "message": error_msg, "error": error_msg})
+        file_manager.mark_step_complete("step4_merge", {"status": "error", "message": error_msg, "error": error_msg})
         return False, error_msg, None, f"エラー: {error_msg}"
-
-    asset_metadata_path = Path(asset_metadata_path_str)
-    skinned_fbx_path = Path(skinned_fbx_path_str)
-    original_model_path = file_manager.get_uploaded_file_path(original_filename)
-
-    if not asset_metadata_path.exists():
-        error_msg = f"ステップ4エラー: アセットメタデータファイルが見つかりません: {asset_metadata_path}"
-        file_manager.model_specific_logger.error(error_msg)
-        file_manager.mark_step_complete("step4_texture", {"status": "error", "message": error_msg, "error": error_msg})
-        return False, error_msg, None, f"エラー: {error_msg}"
-    if not skinned_fbx_path.exists():
-        error_msg = f"ステップ4エラー: スキニング済みFBXファイルが見つかりません: {skinned_fbx_path}"
-        file_manager.model_specific_logger.error(error_msg)
-        file_manager.mark_step_complete("step4_texture", {"status": "error", "message": error_msg, "error": error_msg})
-        return False, error_msg, None, f"エラー: {error_msg}"
-    if not original_model_path.exists():
-        error_msg = f"ステップ4エラー: 元のモデルファイルが見つかりません: {original_model_path}"
-        file_manager.model_specific_logger.error(error_msg)
-        file_manager.mark_step_complete("step4_texture", {"status": "error", "message": error_msg, "error": error_msg})
-        return False, error_msg, None, f"エラー: {error_msg}"
-
-    output_dir_step4 = file_manager.get_step_output_dir("step4_texture") # または "04_merge"
-
+    
+    output_dir_step4 = file_manager.get_step_output_dir("step4_merge")
+    
     try:
-        if use_v2_texture_merge:
-            step4_processor = Step4TextureV2(
-                output_dir=Path(output_dir_step4),
-                logger_instance=file_manager.model_specific_logger
-            )
-        else:
-            step4_processor = Step4Texture(
-                output_dir=Path(output_dir_step4),
-                logger_instance=file_manager.model_specific_logger
-            )
+        # 新Step4Merge: スケルトン・スキンウェイトマージ特化実行
+        step4_processor = Step4Merge(
+            output_dir=output_dir_step4,
+            logger_instance=file_manager.model_specific_logger
+        )
         
-        success, logs, outputs = step4_processor.merge_textures(
+        success, logs, outputs = step4_processor.merge_skeleton_skinning(
             model_name=model_name,
-            skinned_fbx_path=skinned_fbx_path,
-            asset_metadata_path=asset_metadata_path,
-            original_model_path=original_model_path
+            step1_files=step1_outputs,
+            step2_files=step2_outputs,
+            step3_files=step3_outputs
         )
         
         status = "success" if success else "error"
         message = logs if logs else ("正常完了" if success else "エラー発生")
-        file_manager.mark_step_complete("step4_texture", {"status": status, "message": message, "outputs": outputs, "error": "" if success else message})
-        ui_message = f"ステップ4 (v2: {use_v2_texture_merge}): {message}"
+        file_manager.mark_step_complete("step4_merge", {"status": status, "message": message, "outputs": outputs, "error": "" if success else message})
+        ui_message = f"ステップ4 (マージ): {message}"
+        merged_fbx_path = outputs.get("merged_fbx") if outputs else None
+        return success, message, merged_fbx_path, ui_message
+    except Exception as e:
+        error_msg = f"Step 4 (マージ) 内部モジュール呼び出しエラー: {e}"
+        file_manager.model_specific_logger.error(error_msg, exc_info=True)
+        file_manager.mark_step_complete("step4_merge", {"status": "error", "message": error_msg, "error": str(e)})
+        return False, error_msg, None, f"エラー: {error_msg}"
+
+def call_step5_blender_integration(model_name: str, progress: gr.Progress):
+    """Step 5: Blender統合・最終FBX出力（新設）"""
+    progress(0.9, desc="ステップ5: Blender統合・最終出力中...")
+    file_manager = FileManager(model_name)
+    pipeline_state = file_manager.load_pipeline_state()
+    
+    # 入力ファイルの検証
+    original_filename = pipeline_state.get("original_filename")
+    step4_outputs = pipeline_state.get("step4_merge", {}).get("outputs", {})
+    
+    if not original_filename or not step4_outputs:
+        error_msg = "Step 5エラー: 元モデルまたはStep4出力が不足しています"
+        file_manager.model_specific_logger.error(error_msg)
+        file_manager.mark_step_complete("step5_blender_integration", {"status": "error", "message": error_msg, "error": error_msg})
+        return False, error_msg, None, f"エラー: {error_msg}"
+    
+    original_file_path = file_manager.get_uploaded_file_path(original_filename)
+    merged_fbx_path = step4_outputs.get("merged_fbx")
+    
+    if not original_file_path.exists() or not merged_fbx_path or not Path(merged_fbx_path).exists():
+        error_msg = f"Step 5エラー: 必要なファイルが見つかりません - 元: {original_file_path}, マージ: {merged_fbx_path}"
+        file_manager.model_specific_logger.error(error_msg)
+        file_manager.mark_step_complete("step5_blender_integration", {"status": "error", "message": error_msg, "error": error_msg})
+        return False, error_msg, None, f"エラー: {error_msg}"
+    
+    output_dir_step5 = file_manager.get_step_output_dir("step5_blender_integration")
+    
+    try:
+        # Step5BlenderIntegration の実行
+        step5_processor = Step5BlenderIntegration(
+            model_name=model_name,
+            output_dir=str(output_dir_step5)
+        )
+        
+        success, logs, outputs = step5_processor.integrate_and_export(
+            original_model=str(original_file_path),
+            merged_fbx=merged_fbx_path
+        )
+        
+        status = "success" if success else "error"
+        message = logs if logs else ("正常完了" if success else "エラー発生")
+        file_manager.mark_step_complete("step5_blender_integration", {"status": status, "message": message, "outputs": outputs, "error": "" if success else message})
+        ui_message = f"ステップ5 (Blender統合): {message}"
         final_fbx_path = outputs.get("final_fbx") if outputs else None
         return success, message, final_fbx_path, ui_message
     except Exception as e:
-        error_msg = f"Step 4 (v2: {use_v2_texture_merge}) 内部モジュール呼び出しエラー: {e}"
+        error_msg = f"Step 5 (Blender統合) 内部モジュール呼び出しエラー: {e}"
         file_manager.model_specific_logger.error(error_msg, exc_info=True)
-        file_manager.mark_step_complete("step4_texture", {"status": "error", "message": error_msg, "error": str(e)})
+        file_manager.mark_step_complete("step5_blender_integration", {"status": "error", "message": error_msg, "error": str(e)})
         return False, error_msg, None, f"エラー: {error_msg}"
 
 # --- ポートチェック関数 ---
-def is_port_in_use(port: int) -> bool:
+
+def is_port_available(port: int) -> bool:
+    """指定されたポートが利用可能かどうかを確認する"""
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         try:
-            s.bind(("127.0.0.1", port))
-            return False
-        except socket.error:
+            s.bind(('', port))
             return True
+        except OSError:
+            return False
 
-def check_port_periodically(port: int, interval: int = 2, max_checks: int = 5):
-    """指定されたポートが使用可能になるまで定期的にチェックする"""
-    # app_logger.info(f"ポート {port} のチェックを開始します...")
-    # for i in range(max_checks):
-    #     if not is_port_in_use(port):
-    #         app_logger.info(f"ポート {port} は利用可能です。")
-    #         return True
-    #     app_logger.info(f"ポート {port} は使用中です。 ({i+1}/{max_checks}) {interval}秒後に再試行します...")
-    #     time.sleep(interval)
-    # app_logger.error(f"ポート {port} はタイムアウト後も使用中です。Gradioの起動に失敗する可能性があります。")
-    # return False
-    # この機能はGradioがshare=Trueの場合に外部からアクセスする際に問題になることがあるため、
-    # ローカル実行では必須ではないかもしれない。一旦無効化または簡略化。
-    if is_port_in_use(port):
-        app_logger.warning(f"ポート {port} は既に使用中です。Gradioの起動に影響する可能性があります。")
-        return False
-    app_logger.info(f"ポート {port} は利用可能です。")
-    return True
+def find_available_port(start_port: int = 7860, max_attempts: int = 10) -> int:
+    """利用可能なポートを検索する"""
+    for i in range(max_attempts):
+        port = start_port + i
+        if is_port_available(port):
+            return port
+    raise RuntimeError(f"利用可能なポートが見つかりません (範囲: {start_port}-{start_port + max_attempts - 1})")
 
-# --- メインパイプライン実行関数 ---
-def call_pipeline(uploaded_file, gender, use_step4_v2, progress=gr.Progress(track_tqdm=True)):
-    if uploaded_file is None:
-        yield "エラー: ファイルがアップロードされていません。", "", "", "", "", "", "", "", gr.Button(interactive=True)
-        return
-
-    original_filename_full = Path(uploaded_file.name).name
-    model_name_base = Path(original_filename_full).stem
-    model_name = FileManager(model_name_base).model_name # サニタイズされたモデル名を取得
-
-    file_manager = FileManager(model_name)
-    file_manager.reset_pipeline_state() # パイプライン開始時に状態をリセット
-    file_manager.model_specific_logger.info(f"パイプライン開始: モデル名='{model_name}', 元ファイル名='{original_filename_full}'")
-
-    # アップロードされたファイルをFileManager経由で保存
+# --- フルパイプライン実行関数 ---
+def call_full_pipeline(uploaded_file_path: str, gender: str, model_name: str, progress: gr.Progress):
+    """
+    6ステップフルパイプライン実行: 
+    Step0 → Step1 → Step2 → Step3 → Step4 → Step5
+    """
+    if not uploaded_file_path:
+        return None, "エラー: ファイルがアップロードされていません。", None, "ファイルをアップロードしてください。"
+    
     try:
-        saved_uploaded_file_path = file_manager.save_uploaded_file(uploaded_file.name)
-        file_manager.model_specific_logger.info(f"入力ファイルを処理準備完了: {saved_uploaded_file_path}")
-        # 元のファイル名をstateに保存
-        file_manager.update_pipeline_state({"original_filename": original_filename_full})
-    except Exception as e:
-        error_msg = f"ファイルアップロード処理エラー: {e}"
-        file_manager.model_specific_logger.error(error_msg, exc_info=True)
-        yield error_msg, "", "", "", "", "", "", "", gr.Button(interactive=True)
-        return
-
-    # UI出力用変数の初期化
-    log_output = f"パイプライン開始: {model_name}\n"
-    step0_status, step1_status, step2_status, step3_status, step4_status = ["待機中"] * 5
-    final_fbx_path_ui = ""
-    log_file_path_ui = str(file_manager.get_log_file_path()) # ログファイルのパスをUIに表示
-
-    yield (
-        log_output, step0_status, step1_status, step2_status, step3_status, step4_status,
-        final_fbx_path_ui, log_file_path_ui, gr.Button(interactive=False)
-    )
-
-    # Step 0: Asset Preservation
-    s0_success, s0_log, s0_metadata_path, s0_ui_msg = call_step0_preserve_assets(model_name, progress)
-    log_output += f"{s0_ui_msg}\n"
-    step0_status = "成功" if s0_success else "失敗"
-    yield log_output, step0_status, step1_status, step2_status, step3_status, step4_status, final_fbx_path_ui, log_file_path_ui, gr.Button(interactive=False)
-    if not s0_success:
-        log_output += "ステップ0でエラーが発生したため、パイプラインを停止します。\n"
-        yield log_output, step0_status, step1_status, step2_status, step3_status, step4_status, final_fbx_path_ui, log_file_path_ui, gr.Button(interactive=True)
-        return
-
-    # Step 1: Extract Mesh
-    s1_success, s1_log, s1_npz_path, s1_ui_msg = call_step1_extract_mesh(model_name, progress)
-    log_output += f"{s1_ui_msg}\n"
-    step1_status = "成功" if s1_success else "失敗"
-    yield log_output, step0_status, step1_status, step2_status, step3_status, step4_status, final_fbx_path_ui, log_file_path_ui, gr.Button(interactive=False)
-    if not s1_success:
-        log_output += "ステップ1でエラーが発生したため、パイプラインを停止します。\n"
-        yield log_output, step0_status, step1_status, step2_status, step3_status, step4_status, final_fbx_path_ui, log_file_path_ui, gr.Button(interactive=True)
-        return
-
-    # Step 2: Generate Skeleton
-    s2_success, s2_log, s2_fbx_path, s2_npz_path, s2_ui_msg = call_step2_generate_skeleton(model_name, gender, progress)
-    log_output += f"{s2_ui_msg}\n"
-    step2_status = "成功" if s2_success else "失敗"
-    yield log_output, step0_status, step1_status, step2_status, step3_status, step4_status, final_fbx_path_ui, log_file_path_ui, gr.Button(interactive=False)
-    if not s2_success:
-        log_output += "ステップ2でエラーが発生したため、パイプラインを停止します。\n"
-        yield log_output, step0_status, step1_status, step2_status, step3_status, step4_status, final_fbx_path_ui, log_file_path_ui, gr.Button(interactive=True)
-        return
-
-    # Step 3: Apply Skinning
-    s3_success, s3_log, s3_skinned_fbx_path, s3_ui_msg = call_step3_apply_skinning(model_name, progress)
-    log_output += f"{s3_ui_msg}\n"
-    step3_status = "成功" if s3_success else "失敗"
-    yield log_output, step0_status, step1_status, step2_status, step3_status, step4_status, final_fbx_path_ui, log_file_path_ui, gr.Button(interactive=False)
-    if not s3_success:
-        log_output += "ステップ3でエラーが発生したため、パイプラインを停止します。\n"
-        yield log_output, step0_status, step1_status, step2_status, step3_status, step4_status, final_fbx_path_ui, log_file_path_ui, gr.Button(interactive=True)
-        return
-
-    # Step 4: Merge Textures
-    s4_success, s4_log, s4_final_fbx_path, s4_ui_msg = call_step4_merge_textures(model_name, use_step4_v2, progress)
-    log_output += f"{s4_ui_msg}\n"
-    step4_status = "成功" if s4_success else "失敗"
-    if s4_success and s4_final_fbx_path:
-        final_fbx_path_ui = str(s4_final_fbx_path)
-        log_output += f"最終出力ファイル: {final_fbx_path_ui}\n"
-    
-    log_output += "パイプライン完了。\n"
-    yield log_output, step0_status, step1_status, step2_status, step3_status, step4_status, final_fbx_path_ui, log_file_path_ui, gr.Button(interactive=True)
-
-# --- Gradio UI ---
-if __name__ == "__main__":
-    # グローバルロガー設定 (app.py実行時に一度だけ行う)
-    app_logger = logging.getLogger("UniRigApp")
-    app_logger.setLevel(logging.DEBUG) # グローバルロガーのレベル
-    app_logger.handlers = [] # 既存のハンドラをクリア (再実行時の重複防止)
-    
-    # stdoutハンドラをグローバルロガーに追加
-    global_stdout_handler = logging.StreamHandler(sys.stdout)
-    global_formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-    global_stdout_handler.setFormatter(global_formatter)
-    global_stdout_handler.setLevel(logging.INFO) # コンソールはINFO以上
-    app_logger.addHandler(global_stdout_handler)
-    app_logger.propagate = False # 親ロガーへの伝播はしない
-
-    app_logger.info("アプリケーションロガーを初期化しました。")
-
-    # ポートが利用可能か確認
-    gradio_port = 7861 # 変更: ポート番号を7861に変更
-    # check_port_periodically(gradio_port) # 起動前にチェック
-
-    with gr.Blocks(theme=gr.themes.Soft()) as demo:
-        gr.Markdown("# UniRig 自動リギングシステム (データフロー改修版)")
+        progress(0.0, desc="パイプライン初期化中...")
         
-        with gr.Row():
-            with gr.Column(scale=1):
-                file_input = gr.File(label="3Dモデルファイル (FBX, GLB, etc.)", type="filepath")
-                gender_dropdown = gr.Dropdown(label="性別 (スケルトン生成用)", choices=["neutral", "male", "female"], value="neutral")
-                use_step4_v2_checkbox = gr.Checkbox(label="Step4: テクスチャ統合 v2 を使用 (推奨)", value=True)
-                run_button = gr.Button("パイプライン実行", variant="primary", interactive=True)
+        # ファイルマネージャー初期化
+        file_manager = FileManager(model_name)
+        file_manager.reset_pipeline_state()
+        
+        # アップロードファイル保存
+        uploaded_path = Path(uploaded_file_path)
+        saved_path = file_manager.save_uploaded_file(uploaded_path, uploaded_path.name)
+        
+        logs = f"=== UniRig 6ステップフルパイプライン実行開始 ===\n"
+        logs += f"📁 モデル名: {model_name}\n"
+        logs += f"📂 入力ファイル: {uploaded_file_path}\n\n"
+        
+        # Step 0: ファイル転送
+        progress(0.05, desc="ステップ0: ファイル転送中...")
+        success_0, message_0, _, ui_msg_0 = call_step0_preserve_assets(model_name, progress)
+        logs += f"Step 0: {message_0}\n"
+        if not success_0:
+            return None, logs, None, ui_msg_0
+        
+        # Step 1: メッシュ抽出
+        progress(0.2, desc="ステップ1: メッシュ抽出中...")
+        success_1, message_1, _, ui_msg_1 = call_step1_extract_mesh(model_name, progress)
+        logs += f"Step 1: {message_1}\n"
+        if not success_1:
+            return None, logs, None, ui_msg_1
+        
+        # Step 2: スケルトン生成
+        progress(0.35, desc="ステップ2: スケルトン生成中...")
+        success_2, message_2, _, _, ui_msg_2 = call_step2_generate_skeleton(model_name, gender, progress)
+        logs += f"Step 2: {message_2}\n"
+        if not success_2:
+            return None, logs, None, ui_msg_2
+        
+        # Step 3: スキニング適用
+        progress(0.55, desc="ステップ3: スキニング適用中...")
+        success_3, message_3, _, ui_msg_3 = call_step3_apply_skinning(model_name, "unirig", progress)
+        logs += f"Step 3: {message_3}\n"
+        if not success_3:
+            return None, logs, None, ui_msg_3
+        
+        # Step 4: マージ処理
+        progress(0.75, desc="ステップ4: マージ処理中...")
+        success_4, message_4, _, ui_msg_4 = call_step4_merge_skeleton_skinning(model_name, progress)
+        logs += f"Step 4: {message_4}\n"
+        if not success_4:
+            return None, logs, None, ui_msg_4
+        
+        # Step 5: Blender統合・最終出力
+        progress(0.9, desc="ステップ5: Blender統合・最終出力中...")
+        success_5, message_5, final_path, ui_msg_5 = call_step5_blender_integration(model_name, progress)
+        logs += f"Step 5: {message_5}\n"
+        
+        if success_5 and final_path:
+            logs += f"\n🎉 === 6ステップフルパイプライン実行完了 ===\n"
+            logs += f"✅ 最終出力: {final_path}\n"
+            progress(1.0, desc="フルパイプライン完了!")
+            return final_path, logs, final_path, "フルパイプライン実行完了!"
+        else:
+            return None, logs, None, ui_msg_5
             
-            with gr.Column(scale=2):
-                gr.Markdown("### パイプライン進捗")
-                log_output_textbox = gr.Textbox(label="ログ出力", lines=15, max_lines=30, autoscroll=True, show_copy_button=True)
+    except Exception as e:
+        error_msg = f"フルパイプライン実行エラー: {str(e)}"
+        app_logger.error(error_msg, exc_info=True)
+        return None, f"{logs}\n❌ {error_msg}", None, error_msg
+
+# --- Gradioインターフェース構築 ---
+def build_gradio_interface():
+    """6ステップパイプライン対応のGradioインターフェースを構築"""
+    
+    with gr.Blocks(title="UniRig 6ステップ自動リギングシステム", theme=gr.themes.Base()) as demo:
+        
+        # 状態変数
+        s_model_name = gr.State()
+        s_final_path = gr.State()
+        
+        gr.Markdown("# UniRig 6ステップ自動リギングシステム")
+        gr.Markdown("""
+        3Dモデル（FBX、OBJ、GLB/GLTF、PLYなど）をアップロードし、6ステップの自動リギング処理を実行します。
+        
+        **6ステップ処理フロー:**
+        1. **Step 0**: ファイル転送・初期設定
+        2. **Step 1**: メッシュ抽出
+        3. **Step 2**: スケルトン生成
+        4. **Step 3**: スキニング適用
+        5. **Step 4**: マージ処理
+        6. **Step 5**: Blender統合・最終出力
+        """)
+        
+        with gr.Tab("フルパイプライン実行"):
+            gr.Markdown("## 🚀 ワンクリック6ステップ自動リギング")
+            
+            with gr.Row():
+                with gr.Column(scale=1):
+                    # 入力コントロール
+                    input_model_upload = gr.File(
+                        label="3Dモデルをアップロード", 
+                        file_types=[".fbx", ".obj", ".glb", ".gltf", ".ply"], 
+                        type="filepath"
+                    )
+                    model_name_input = gr.Textbox(
+                        label="モデル名",
+                        placeholder="モデル名を入力（ファイル名から自動設定）",
+                        value=""
+                    )
+                    gender_dropdown = gr.Dropdown(
+                        label="性別（スケルトン生成用）", 
+                        choices=["female", "male", "neutral"], 
+                        value="female"
+                    )
+                    pipeline_button = gr.Button(
+                        "🎯 6ステップフルパイプライン実行", 
+                        variant="primary", 
+                        size="lg"
+                    )
                 
-                with gr.Row():
-                    step0_status_textbox = gr.Textbox(label="Step0: アセット保存", value="待機中", interactive=False)
-                    step1_status_textbox = gr.Textbox(label="Step1: メッシュ抽出", value="待機中", interactive=False)
-                with gr.Row():
-                    step2_status_textbox = gr.Textbox(label="Step2: スケルトン生成", value="待機中", interactive=False)
-                    step3_status_textbox = gr.Textbox(label="Step3: スキニング", value="待機中", interactive=False)
-                with gr.Row():
-                    step4_status_textbox = gr.Textbox(label="Step4: テクスチャ統合", value="待機中", interactive=False)
-
-                final_fbx_path_textbox = gr.Textbox(label="最終FBXファイルパス", value="", interactive=False, show_copy_button=True)
-                log_file_path_textbox = gr.Textbox(label="モデル別ログファイルパス", value="", interactive=False, show_copy_button=True)
-
-        run_button.click(
-            fn=call_pipeline,
-            inputs=[file_input, gender_dropdown, use_step4_v2_checkbox],
+                with gr.Column(scale=2):
+                    # 結果表示
+                    final_model_display = gr.Model3D(
+                        label="最終リギング済みモデルプレビュー", 
+                        interactive=False, 
+                        camera_position=(0, 2.5, 3.5)
+                    )
+            
+            # ログ表示
+            pipeline_logs = gr.Textbox(
+                label="フルパイプラインログ", 
+                lines=15, 
+                interactive=False, 
+                show_copy_button=True
+            )
+            
+            # ダウンロードボタン
+            final_model_download = gr.DownloadButton(
+                label="🎯 最終モデル (FBX)", 
+                interactive=True, 
+                visible=False
+            )
+            
+        with gr.Tab("ステップ詳細とヘルプ"):
+            gr.Markdown("""
+            ## 📋 各ステップの詳細
+            
+            ### Step 0: ファイル転送・初期設定
+            - アップロードされたファイルを内部作業ディレクトリに転送
+            - パイプライン状態の初期化
+            
+            ### Step 1: メッシュ抽出  
+            - 3Dモデルから頂点・面情報を抽出
+            - NPZ形式でメッシュデータを保存
+            
+            ### Step 2: スケルトン生成
+            - AIを用いた最適な骨格構造の予測
+            - FBXとNPZ形式でスケルトンデータを出力
+            
+            ### Step 3: スキニング適用
+            - メッシュと骨格の自動バインディング
+            - 頂点ウェイトの自動計算
+            
+            ### Step 4: マージ処理
+            - スケルトンとスキニングデータの統合
+            - 中間形式での統合処理
+            
+            ### Step 5: Blender統合・最終出力
+            - Blenderを使用した最終品質調整
+            - 高品質FBXファイルの生成
+            
+            ## 💡 使用方法
+            1. 3Dモデルファイルをアップロード
+            2. モデル名を入力（自動入力されます）
+            3. 性別を選択
+            4. 「フルパイプライン実行」をクリック
+            5. 処理完了後、最終モデルをダウンロード
+            
+            ## ⚠️ 注意事項
+            - 処理時間: 5-15分程度（モデルサイズによる）
+            - サポート形式: FBX, OBJ, GLB, GLTF, PLY
+            - GPU環境推奨（CPU処理も可能）
+            """)
+        
+        # イベントハンドラー
+        def handle_upload(file_path):
+            """ファイルアップロード時の処理"""
+            if file_path:
+                filename = Path(file_path).stem
+                return filename, filename  # model_name_input, s_model_name
+            return "", ""
+        
+        def handle_pipeline_execution(file_path, gender, model_name, progress=gr.Progress()):
+            """フルパイプライン実行ハンドラー"""
+            if not file_path:
+                return None, "エラー: ファイルがアップロードされていません。", None, None, gr.DownloadButton(visible=False)
+            
+            if not model_name.strip():
+                model_name = Path(file_path).stem
+            
+            final_path, logs, download_path, ui_msg = call_full_pipeline(file_path, gender, model_name, progress)
+            
+            if final_path:
+                return (
+                    final_path,  # final_model_display
+                    logs,        # pipeline_logs  
+                    download_path, # s_final_path
+                    ui_msg,      # UI status
+                    gr.DownloadButton(label="🎯 最終モデル (FBX)", value=download_path, visible=True)
+                )
+            else:
+                return (
+                    None,        # final_model_display
+                    logs,        # pipeline_logs
+                    None,        # s_final_path
+                    ui_msg,      # UI status
+                    gr.DownloadButton(visible=False)
+                )
+        
+        # イベント設定
+        input_model_upload.change(
+            fn=handle_upload,
+            inputs=[input_model_upload],
+            outputs=[model_name_input, s_model_name]
+        )
+        
+        pipeline_button.click(
+            fn=handle_pipeline_execution,
+            inputs=[input_model_upload, gender_dropdown, model_name_input],
             outputs=[
-                log_output_textbox, 
-                step0_status_textbox, step1_status_textbox, step2_status_textbox, 
-                step3_status_textbox, step4_status_textbox,
-                final_fbx_path_textbox, log_file_path_textbox,
-                run_button # ボタンのインタラクティブ状態を更新
+                final_model_display,
+                pipeline_logs,
+                s_final_path,
+                gr.State(),  # UI状態用（表示されない）
+                final_model_download
             ]
         )
+        
+        demo.queue()
+    
+    return demo
 
-    app_logger.info(f"Gradioアプリケーションをポート {gradio_port} で起動します。")
-    # demo.queue().launch(share=True, server_port=gradio_port, prevent_thread_lock=True)
-    # prevent_thread_lock=True はGradioのバージョンによっては不要/エラーになる可能性あり
-    # share=True は外部公開用。ローカルテストでは不要な場合も。
-    demo.queue().launch(server_port=gradio_port)
-    app_logger.info("Gradioアプリケーションが終了しました。")
+# --- メイン実行部分 ---
+if __name__ == "__main__":
+    app_logger.info("UniRig 6ステップパイプラインアプリケーション開始")
+    
+    # ポート確認
+    try:
+        port = find_available_port(7860)
+        app_logger.info(f"利用可能ポート: {port}")
+    except RuntimeError as e:
+        app_logger.error(f"ポート確認エラー: {e}")
+        sys.exit(1)
+    
+    # Gradioインターフェース構築
+    try:
+        demo = build_gradio_interface()
+        app_logger.info("Gradioインターフェース構築完了")
+        
+        # サーバー起動
+        demo.launch(
+            server_name="0.0.0.0",
+            server_port=port,
+            share=False,
+            inbrowser=True,
+            debug=True,
+            show_error=True
+        )
+        
+    except Exception as e:
+        app_logger.error(f"アプリケーション起動エラー: {e}", exc_info=True)
+        sys.exit(1)

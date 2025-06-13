@@ -1,0 +1,8 @@
+{
+  "model_name": "bird",
+  "original_file": "/tmp/gradio/8aba700572958052db58d410c2a2cf5076be360d5074b8a44a0e9fdf9f92dfba/bird.glb",
+  "preserved_at": 1749455791.3523133,
+  "texture_directory": "pipeline_output/step1_extract/bird/textures",
+  "materials": [],
+  "textures": []
+}

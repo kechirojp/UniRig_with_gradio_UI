@@ -1,0 +1,441 @@
+"""
+Step 5 Module - Blender統合・最終FBX出力 (新設)
+
+機能:
+1. アップロードされたモデルをBlenderファイルに変換（オリジナルモデル）
+2. Step4で作られたモデルをBlenderファイルに変換（マージモデル）
+3. マージモデルにオリジナルモデルのマテリアル・テクスチャ・UVを移植
+4. マージモデルをFBXに変換
+5. FBXモデルをダウンロード可能にする
+
+データフロー:
+- 入力: original_model(元モデル), merged_fbx(Step4出力)
+- 出力: /app/pipeline_work/{model_name}/05_blender_integration/{model_name}_final.fbx
+"""
+
+import os
+import logging
+import subprocess
+import tempfile
+import time
+from pathlib import Path
+from typing import Tuple, Dict, Optional
+import shutil
+import traceback
+
+logger = logging.getLogger(__name__)
+
+class Step5BlenderIntegration:
+    """
+    Step 5: Blender統合・最終FBX出力
+    
+    新設モジュール: Blenderでの高度な統合処理
+    - オリジナルモデルのマテリアル・テクスチャ・UV情報を完全保持
+    - Step4マージモデルのスケルトン・スキニング情報を完全保持
+    - 両方の利点を統合した最終FBXを生成
+    """
+    
+    def __init__(self, model_name: str, output_dir: str):
+        """
+        Step5初期化
+        
+        Args:
+            model_name: モデル名
+            output_dir: 出力ディレクトリ
+        """
+        self.model_name = model_name
+        self.output_dir = Path(output_dir)
+        self.logger = logging.getLogger(__name__)
+        
+        # ディレクトリ作成
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+        
+        # 出力ファイル
+        self.final_fbx = self.output_dir / f"{model_name}_final.fbx"
+        self.final_blend = self.output_dir / f"{model_name}_final.blend"
+        
+        # 作業用ディレクトリ
+        self.work_dir = self.output_dir / "work"
+        self.work_dir.mkdir(exist_ok=True)
+        
+    def integrate_and_export(self, original_model: str, merged_fbx: str) -> Tuple[bool, str, Dict]:
+        """
+        Blender統合・最終FBX出力処理
+        
+        Args:
+            original_model: 元モデルファイルパス（マテリアル・テクスチャ情報源）
+            merged_fbx: Step4出力のマージ済みFBXファイルパス（スケルトン・スキニング情報源）
+            
+        Returns:
+            success: 処理成功フラグ
+            logs: 処理ログメッセージ
+            output_files: 出力ファイル辞書
+        """
+        start_time = time.time()
+        
+        try:
+            self.logger.info(f"=== Step 5: {self.model_name} Blender統合・最終FBX出力開始 ===")
+            self.logger.info(f"オリジナルモデル: {original_model}")
+            self.logger.info(f"マージモデル: {merged_fbx}")
+            
+            # ステップ1: Blenderで統合処理実行
+            success = self._execute_blender_integration(original_model, merged_fbx)
+            
+            if not success:
+                return False, "Blender統合処理失敗", {}
+            
+            # ステップ2: 最終FBX品質確認
+            if not self.final_fbx.exists():
+                return False, "最終FBXファイル生成失敗", {}
+            
+            # 処理時間計算
+            processing_time = time.time() - start_time
+            
+            # ファイルサイズ取得
+            file_size_mb = self.final_fbx.stat().st_size / (1024 * 1024)
+            
+            # 出力ファイル辞書
+            output_files = {
+                "final_fbx": str(self.final_fbx),
+                "final_blend": str(self.final_blend) if self.final_blend.exists() else None
+            }
+            
+            success_log = f"Step 5 Blender統合完了: {self.final_fbx} ({file_size_mb:.1f}MB, {processing_time:.1f}秒)"
+            self.logger.info(success_log)
+            
+            return True, success_log, output_files
+            
+        except Exception as e:
+            error_msg = f"Step 5 Blender統合エラー: {str(e)}"
+            self.logger.error(error_msg)
+            self.logger.error(traceback.format_exc())
+            
+            return False, error_msg, {}
+    
+    def _execute_blender_integration(self, original_model: str, merged_fbx: str) -> bool:
+        """Blenderでの統合処理実行"""
+        try:
+            self.logger.info("Blender統合処理実行開始")
+            
+            # Blenderスクリプト生成
+            blender_script = self._generate_blender_integration_script(
+                original_model, merged_fbx
+            )
+            
+            # Blenderスクリプトを一時ファイルに保存
+            script_file = self.work_dir / "blender_integration.py"
+            with open(script_file, 'w', encoding='utf-8') as f:
+                f.write(blender_script)
+            
+            # Blenderバックグラウンド実行
+            cmd = ["blender", "--background", "--python", str(script_file)]
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+            
+            # スクリプトファイル削除
+            script_file.unlink(missing_ok=True)
+            
+            if result.returncode == 0:
+                self.logger.info("Blender統合処理成功")
+                self.logger.info(f"STDOUT: {result.stdout}")
+                return True
+            else:
+                self.logger.error(f"Blender統合処理失敗: {result.stderr}")
+                return False
+                
+        except subprocess.TimeoutExpired:
+            self.logger.error("Blender統合処理タイムアウト")
+            return False
+        except Exception as e:
+            self.logger.error(f"Blender統合処理エラー: {e}")
+            return False
+    
+    def _generate_blender_integration_script(self, original_model: str, merged_fbx: str) -> str:
+        """Blender統合用スクリプト生成"""
+        
+        # 安全な文字列生成のため、文字列置換を使用
+        script_template = '''
+import bpy
+import bmesh
+import os
+from mathutils import Vector, Matrix
+
+def clear_scene():
+    """シーンをクリア"""
+    bpy.ops.object.select_all(action='SELECT')
+    bpy.ops.object.delete(use_global=False)
+    
+    # メッシュデータもクリア
+    for mesh in bpy.data.meshes:
+        bpy.data.meshes.remove(mesh)
+    
+    # マテリアルもクリア
+    for material in bpy.data.materials:
+        bpy.data.materials.remove(material)
+    
+    # テクスチャもクリア
+    for texture in bpy.data.textures:
+        bpy.data.textures.remove(texture)
+
+def import_original_model():
+    """オリジナルモデルをインポート（マテリアル・テクスチャ情報源）"""
+    print("オリジナルモデルインポート: ORIGINAL_MODEL_PATH")
+    
+    # 拡張子に基づいてインポート方法を選択
+    original_path = "ORIGINAL_MODEL_PATH"
+    if original_path.lower().endswith('.fbx'):
+        bpy.ops.import_scene.fbx(filepath=original_path)
+    elif original_path.lower().endswith('.obj'):
+        bpy.ops.import_scene.obj(filepath=original_path)
+    elif original_path.lower().endswith('.glb') or original_path.lower().endswith('.gltf'):
+        bpy.ops.import_scene.gltf(filepath=original_path)
+    else:
+        # 汎用インポート（FBXを試行）
+        bpy.ops.import_scene.fbx(filepath=original_path)
+    
+    # オリジナルモデルオブジェクトに名前を付ける
+    for obj in bpy.context.selected_objects:
+        if obj.type == 'MESH':
+            obj.name = "original_" + obj.name
+            print("オリジナルメッシュ: " + obj.name)
+
+def import_merged_model():
+    """マージモデルをインポート（スケルトン・スキニング情報源）"""
+    print("マージモデルインポート: MERGED_FBX_PATH")
+    
+    bpy.ops.import_scene.fbx(filepath="MERGED_FBX_PATH")
+    
+    # マージモデルオブジェクトに名前を付ける
+    for obj in bpy.context.selected_objects:
+        if obj.type == 'MESH':
+            obj.name = "merged_" + obj.name
+            print("マージメッシュ: " + obj.name)
+        elif obj.type == 'ARMATURE':
+            obj.name = "merged_armature"
+            print("マージアーマチュア: " + obj.name)
+
+def transfer_materials_and_textures():
+    """オリジナルモデルからマージモデルにマテリアル・テクスチャを転送"""
+    print("マテリアル・テクスチャ転送開始")
+    
+    # オリジナルとマージメッシュオブジェクトを取得
+    original_meshes = [obj for obj in bpy.data.objects if obj.type == 'MESH' and obj.name.startswith('original_')]
+    merged_meshes = [obj for obj in bpy.data.objects if obj.type == 'MESH' and obj.name.startswith('merged_')]
+    
+    if not original_meshes or not merged_meshes:
+        print("警告: オリジナルまたはマージメッシュが見つかりません")
+        return
+    
+    # 最初のオリジナルメッシュからマテリアルを取得
+    original_mesh = original_meshes[0]
+    merged_mesh = merged_meshes[0]
+    
+    # オリジナルのマテリアルスロットをマージメッシュにコピー
+    if original_mesh.data.materials:
+        # マージメッシュの既存マテリアルをクリア
+        merged_mesh.data.materials.clear()
+        
+        # オリジナルのマテリアルをコピー
+        for material in original_mesh.data.materials:
+            if material:
+                merged_mesh.data.materials.append(material)
+                print("マテリアル転送: " + material.name)
+    
+    print("マテリアル・テクスチャ転送完了")
+
+def setup_armature_modifiers():
+    """アーマチュアモディファイアの設定"""
+    print("アーマチュアモディファイア設定開始")
+    
+    # マージメッシュとアーマチュアを取得
+    merged_meshes = [obj for obj in bpy.data.objects if obj.type == 'MESH' and obj.name.startswith('merged_')]
+    armatures = [obj for obj in bpy.data.objects if obj.type == 'ARMATURE']
+    
+    if not merged_meshes or not armatures:
+        print("警告: マージメッシュまたはアーマチュアが見つかりません")
+        return
+    
+    merged_mesh = merged_meshes[0]
+    armature = armatures[0]
+    
+    # アーマチュアモディファイアが既に存在するかチェック
+    armature_modifier = None
+    for modifier in merged_mesh.modifiers:
+        if modifier.type == 'ARMATURE':
+            armature_modifier = modifier
+            break
+    
+    # アーマチュアモディファイアが存在しない場合は追加
+    if not armature_modifier:
+        armature_modifier = merged_mesh.modifiers.new(name="Armature", type='ARMATURE')
+    
+    armature_modifier.object = armature
+    
+    print("アーマチュアモディファイア設定: " + armature.name + " → " + merged_mesh.name)
+
+def cleanup_and_organize():
+    """オブジェクトのクリーンアップと整理"""
+    print("オブジェクトクリーンアップ開始")
+    
+    # オリジナルメッシュを削除（マテリアル転送完了後）
+    original_objects = [obj for obj in bpy.data.objects if obj.name.startswith('original_')]
+    for obj in original_objects:
+        bpy.data.objects.remove(obj, do_unlink=True)
+    
+    # マージメッシュの名前を最終名に変更
+    merged_meshes = [obj for obj in bpy.data.objects if obj.type == 'MESH' and obj.name.startswith('merged_')]
+    for obj in merged_meshes:
+        obj.name = "MODEL_NAME_final_mesh"
+    
+    # アーマチュアの名前を最終名に変更
+    armatures = [obj for obj in bpy.data.objects if obj.type == 'ARMATURE']
+    for obj in armatures:
+        obj.name = "MODEL_NAME_final_armature"
+    
+    print("オブジェクトクリーンアップ完了")
+
+def export_final_fbx():
+    """最終FBXエクスポート"""
+    print("最終FBXエクスポート: FINAL_FBX_PATH")
+    
+    # すべてのオブジェクトを選択
+    bpy.ops.object.select_all(action='SELECT')
+    
+    # 高品質FBXエクスポート
+    bpy.ops.export_scene.fbx(
+        filepath="FINAL_FBX_PATH",
+        use_selection=True,
+        global_scale=1.0,
+        apply_unit_scale=True,
+        apply_scale_options='FBX_SCALE_NONE',
+        use_space_transform=True,
+        bake_space_transform=False,
+        object_types={'ARMATURE', 'MESH'},
+        use_mesh_modifiers=True,
+        use_mesh_modifiers_render=True,
+        mesh_smooth_type='OFF',
+        use_subsurf=False,
+        use_mesh_edges=False,
+        use_tspace=False,
+        use_triangles=False,
+        use_custom_props=False,
+        add_leaf_bones=True,
+        primary_bone_axis='Y',
+        secondary_bone_axis='X',
+        use_armature_deform_only=False,
+        armature_nodetype='NULL',
+        bake_anim=False,
+        bake_anim_use_all_bones=False,
+        bake_anim_use_nla_strips=False,
+        bake_anim_use_all_actions=False,
+        bake_anim_force_startend_keying=False,
+        path_mode='AUTO',
+        embed_textures=False,
+        batch_mode='OFF',
+        use_batch_own_dir=False,
+        use_metadata=True,
+        axis_forward='-Y',
+        axis_up='Z'
+    )
+    
+    print("最終FBXエクスポート完了")
+
+def save_final_blend():
+    """最終Blendファイル保存"""
+    print("最終Blendファイル保存: FINAL_BLEND_PATH")
+    bpy.ops.wm.save_as_mainfile(filepath="FINAL_BLEND_PATH")
+    print("最終Blendファイル保存完了")
+
+# メイン処理実行
+def main():
+    print("=== Blender統合処理開始 ===")
+    
+    try:
+        # ステップ1: シーンクリア
+        clear_scene()
+        
+        # ステップ2: オリジナルモデルインポート
+        import_original_model()
+        
+        # ステップ3: マージモデルインポート
+        import_merged_model()
+        
+        # ステップ4: マテリアル・テクスチャ転送
+        transfer_materials_and_textures()
+        
+        # ステップ5: アーマチュアモディファイア設定
+        setup_armature_modifiers()
+        
+        # ステップ6: クリーンアップと整理
+        cleanup_and_organize()
+        
+        # ステップ7: 最終FBXエクスポート
+        export_final_fbx()
+        
+        # ステップ8: 最終Blendファイル保存
+        save_final_blend()
+        
+        print("=== Blender統合処理完了 ===")
+        
+    except Exception as e:
+        print("エラー: " + str(e))
+        import traceback
+        traceback.print_exc()
+
+if __name__ == "__main__":
+    main()
+'''
+        
+        # プレースホルダーを実際の値に置換
+        final_script = script_template.replace("ORIGINAL_MODEL_PATH", original_model)
+        final_script = final_script.replace("MERGED_FBX_PATH", merged_fbx)
+        final_script = final_script.replace("MODEL_NAME", self.model_name)
+        final_script = final_script.replace("FINAL_FBX_PATH", str(self.final_fbx))
+        final_script = final_script.replace("FINAL_BLEND_PATH", str(self.final_blend))
+        
+        return final_script
+
+
+# UNIRIG_PIPELINE_DATAFLOW.md準拠のモジュール実行インターフェース
+def execute_step5_blender(model_name: str, original_model: str, merged_fbx: str, 
+                          output_dir: str) -> Tuple[bool, str, Dict]:
+    """
+    Step 5 Blender統合実行インターフェース
+    
+    Args:
+        model_name: モデル名
+        original_model: 元モデルファイルパス
+        merged_fbx: Step4出力のマージ済みFBXパス
+        output_dir: 出力ディレクトリ
+    
+    Returns:
+        success: 処理成功フラグ
+        logs: 処理ログ
+        output_files: 出力ファイル辞書
+    """
+    try:
+        step5 = Step5BlenderIntegration(model_name, output_dir)
+        return step5.integrate_and_export(original_model, merged_fbx)
+    except Exception as e:
+        error_msg = f"Step 5 Blender統合実行失敗: {str(e)}"
+        logger.error(error_msg)
+        return False, error_msg, {}
+
+
+if __name__ == "__main__":
+    # テスト用実行
+    import sys
+    if len(sys.argv) >= 5:
+        model_name = sys.argv[1]
+        original_model = sys.argv[2]
+        merged_fbx = sys.argv[3]
+        output_dir = sys.argv[4]
+        
+        success, logs, output_files = execute_step5_blender(
+            model_name, original_model, merged_fbx, output_dir
+        )
+        
+        print(f"成功: {success}")
+        print(f"ログ: {logs}")
+        print(f"出力ファイル: {output_files}")
+    else:
+        print("使用法: python step5_blender_integration.py <model_name> <original_model> <merged_fbx> <output_dir>")

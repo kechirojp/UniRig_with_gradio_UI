@@ -1,3 +1,4 @@
+#!/bin/bash
 # merge texture
 require_suffix="obj,fbx,FBX,dae,glb,gltf,vrm"
 source=""
