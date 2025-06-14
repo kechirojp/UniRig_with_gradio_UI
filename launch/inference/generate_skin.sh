@@ -1,3 +1,9 @@
+#!/bin/bash
+set -x # Enable command tracing
+
+# 🎯 統一スキニング生成スクリプト - ユーザー中心設計対応
+# 統一命名規則: {model_name}_skinned.fbx, {model_name}_skinning.npz
+
 # generate skin
 cfg_data="configs/data/quick_inference.yaml"
 cfg_task="configs/task/quick_inference_unirig_skin.yaml"
@@ -6,6 +12,7 @@ num_runs=1
 force_override="false"
 faces_target_count=50000
 output_dir="results/"
+model_name="" # 統一命名規則対応: モデル名パラメータ追加
 PYTHON_EXEC="/opt/conda/envs/UniRig/bin/python3"
 PIP_EXEC="/opt/conda/envs/UniRig/bin/pip"
 
@@ -23,10 +30,20 @@ while [[ "$#" -gt 0 ]]; do
         --output) output="$2"; shift ;;
         --data_name) data_name="$2"; shift ;;
         --npz_dir) npz_dir="$2"; shift ;;
+        --model_name) model_name="$2"; shift ;; # 統一命名規則対応
         *) echo "Unknown parameter: $1"; exit 1 ;;
     esac
     shift
 done
+
+# 統一命名規則チェック
+if [ -z "$model_name" ]; then
+    echo "ERROR: --model_name parameter is required for unified naming convention"
+    exit 1
+fi
+
+echo "INFO: Generating skinning for model: $model_name"
+echo "INFO: Output directory: $output_dir"
 
 # 1. extract mesh
 cmd=" \
@@ -54,12 +71,17 @@ eval $cmd
 
 wait
 
-# 2. inference skin
+# 2. 統一スキニング生成処理
+echo "INFO: Starting skinning generation with unified naming..."
+
 cmd="\
     python run.py \
     --task=$cfg_task \
     --seed=12345 \
+    --model_name=$model_name \
 "
+
+# 統一パラメータ設定
 if [ -n "$input" ]; then
     cmd="$cmd --input=$input"
 fi
@@ -82,8 +104,33 @@ if [ -n "$data_name" ]; then
     cmd="$cmd --data_name=$data_name"
 fi
 
+echo "INFO: Executing skinning generation command: $cmd"
 eval $cmd
 
 wait
 
-echo "done"
+# 統一命名規則確認
+echo "INFO: Checking unified naming convention compliance..."
+if [ -n "$output_dir" ]; then
+    echo "INFO: Expected files in $output_dir:"
+    echo "  - ${model_name}_skinned.fbx (skinned model FBX)"
+    echo "  - ${model_name}_skinning.npz (skinning data)"
+    
+    # ファイル存在確認と命名規則統一
+    if [ -f "$output_dir/predict_skin.npz" ]; then
+        echo "INFO: Found predict_skin.npz - renaming to ${model_name}_skinning.npz"
+        mv "$output_dir/predict_skin.npz" "$output_dir/${model_name}_skinning.npz"
+    fi
+    
+    if [ -f "$output_dir/skinned_model.fbx" ]; then
+        echo "INFO: Found skinned_model.fbx - renaming to ${model_name}_skinned.fbx"
+        mv "$output_dir/skinned_model.fbx" "$output_dir/${model_name}_skinned.fbx"
+    fi
+    
+    if [ -f "$output_dir/result_fbx.fbx" ]; then
+        echo "INFO: Found result_fbx.fbx - renaming to ${model_name}_skinned.fbx"
+        mv "$output_dir/result_fbx.fbx" "$output_dir/${model_name}_skinned.fbx"
+    fi
+fi
+
+echo "INFO: Skinning generation completed with unified naming convention"

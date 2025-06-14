@@ -1,3 +1,9 @@
+#!/bin/bash
+set -x # Enable command tracing
+
+# 🎯 統一スケルトン生成スクリプト - ユーザー中心設計対応
+# 統一命名規則: {model_name}_skeleton.fbx, {model_name}_skeleton.npz
+
 # generate skeleton
 config="configs/data/quick_inference.yaml"
 require_suffix="obj,fbx,FBX,dae,glb,gltf,vrm"
@@ -8,6 +14,7 @@ skeleton_task="configs/task/quick_inference_skeleton_articulationxl_ar_256.yaml"
 add_root="false"
 seed=12345
 npz_dir="tmp"
+model_name="" # 統一命名規則対応: モデル名パラメータ追加
 
 while [[ "$#" -gt 0 ]]; do
     case $1 in
@@ -24,10 +31,20 @@ while [[ "$#" -gt 0 ]]; do
         --output_dir) output_dir="$2"; shift ;;
         --output) output="$2"; shift ;;
         --npz_dir) npz_dir="$2"; shift ;;
+        --model_name) model_name="$2"; shift ;; # 統一命名規則対応
         *) echo "Unknown parameter: $1"; exit 1 ;;
     esac
     shift
 done
+
+# 統一命名規則チェック
+if [ -z "$model_name" ]; then
+    echo "ERROR: --model_name parameter is required for unified naming convention"
+    exit 1
+fi
+
+echo "INFO: Generating skeleton for model: $model_name"
+echo "INFO: Output directory: $output_dir"
 
 # 1. extract mesh (for skeleton generation - needs raw_data.npz)
 time=$(date +%Y_%m_%d_%H_%M_%S)
@@ -59,12 +76,17 @@ eval $cmd
 
 wait
 
-# 2. inference skeleton
+# 2. 統一スケルトン生成処理
+echo "INFO: Starting skeleton generation with unified naming..."
+
 cmd="\
     python run.py \
     --task=$skeleton_task \
     --seed=$seed \
+    --model_name=$model_name \
 "
+
+# 統一パラメータ設定
 if [ -n "$input" ]; then
     cmd="$cmd --input=$input"
 fi
@@ -81,8 +103,28 @@ if [ -n "$output_dir" ] && [ -z "$npz_dir" ]; then
     cmd="$cmd --output_dir=$output_dir"
 fi
 
+echo "INFO: Executing skeleton generation command: $cmd"
 eval $cmd
 
 wait
 
-echo "done"
+# 統一命名規則確認
+echo "INFO: Checking unified naming convention compliance..."
+if [ -n "$output_dir" ]; then
+    echo "INFO: Expected files in $output_dir:"
+    echo "  - ${model_name}_skeleton.fbx (skeleton FBX)"
+    echo "  - ${model_name}_skeleton.npz (skeleton data)"
+    
+    # ファイル存在確認
+    if [ -f "$output_dir/predict_skeleton.npz" ]; then
+        echo "INFO: Found predict_skeleton.npz - renaming to ${model_name}_skeleton.npz"
+        mv "$output_dir/predict_skeleton.npz" "$output_dir/${model_name}_skeleton.npz"
+    fi
+    
+    if [ -f "$output_dir/skeleton_model.fbx" ]; then
+        echo "INFO: Found skeleton_model.fbx - renaming to ${model_name}_skeleton.fbx"
+        mv "$output_dir/skeleton_model.fbx" "$output_dir/${model_name}_skeleton.fbx"
+    fi
+fi
+
+echo "INFO: Skeleton generation completed with unified naming convention"

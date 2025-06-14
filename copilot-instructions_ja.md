@@ -66,12 +66,12 @@ app.py (UI + データオーケストレーション)
 - **独立性**：前のステージの結果のみを使用し、環境汚染なし
 - **基盤スクリプト**: このモジュールは `launch/inference/generate_skin.sh` の機能をカプセル化します。このスクリプトは、まず `launch/inference/extract.sh` を呼び出してメッシュデータを準備し（スケルトン生成と同様）、次に `python run.py` をタスク固有の設定（例: `--task=configs/task/quick_inference_unirig_skin.yaml`）で呼び出してスキニングを適用します。入力として、元のモデル、出力ディレクトリ、およびスケルトンファイルが格納されているディレクトリ（例: `dataset_inference_clean`）を取ります。
 
-**ステップ4モジュールの例 - テクスチャ統合**
-- **目的**：オリジナルテクスチャの統合と最終出力
-- **入力**：リグ付きFBXファイルパス、オリジナルモデルファイルパス（例）
-- **出力**：最終FBXファイルパス（テクスチャ付き）（例）
-- **独立性**：テクスチャ処理のみに焦点を当て、他の機能との干渉なし
-- **基盤スクリプト**: このモジュールは `launch/inference/merge.sh` の機能をカプセル化します。このスクリプトは `python -m src.inference.merge` を呼び出し、ソース（オリジナルモデル）、ターゲット（スキニング済みモデル）、出力ファイルパスなどのパラメータを渡します。
+**ステップ4モジュールの例 - スケルトン・スキンウェイトマージ**
+- **目的**：スケルトン（Step2）とスキニング（Step3）出力のマージ - テクスチャ処理ではない
+- **入力**：スケルトンFBXファイルパス + スキニング済みFBXファイルパス
+- **出力**：マージ済みFBXファイルパス（スケルトン + スキニング結合）
+- **独立性**：スケルトン・スキニングマージのみに焦点を当て、テクスチャ処理は除外
+- **基盤スクリプト**: このモジュールは `launch/inference/merge.sh` の機能をカプセル化します。このスクリプトは `python -m src.inference.merge` を呼び出し、スケルトンとスキニング済みモデルのパラメータを渡します。
 
 ## 🔧 内部モジュールAPI仕様（リブートガイダンス）
 
@@ -158,26 +158,56 @@ def apply_skinning(model_name: str, mesh_file: str, skeleton_file: str) -> tuple
 - **独立性**: 前のステージの結果のみを使用し、環境汚染なし
 - **基盤スクリプト**: このモジュールは `launch/inference/generate_skin.sh` の機能をカプセル化します。このスクリプトは、まず `launch/inference/extract.sh` を呼び出してメッシュデータを準備し（スケルトン生成と同様）、次に `python run.py` をタスク固有の設定（例: `--task=configs/task/quick_inference_unirig_skin.yaml`）で呼び出してスキニングを適用します。入力として、元のモデル、出力ディレクトリ、およびスケルトンファイルが格納されているディレクトリ（例: `dataset_inference_clean`）を取ります。
 
-#### 例 Step 4 Module - テクスチャ統合
+#### 例 Step 4 インターフェース - スケルトン・スキンウェイトマージ ⭐ 修正済み
 ```python
-def merge_textures(model_name: str, skinned_file: str, original_file: str) -> tuple[bool, str, dict]:
+def merge_skeleton_skinning(model_name: str, skeleton_fbx: str, skinned_fbx: str) -> tuple[bool, str, dict]:
     """
+    ⭐ 重要な概念修正 (2025年6月12日): Step4はテクスチャ処理ではなくスケルトン・スキニングマージ
+    
     Args:
         model_name: モデル識別子名
-        skinned_file: リグ付きFBXファイルパス
+        skeleton_fbx: スケルトンFBXファイルパス（スケルトン情報源）
+        skinned_fbx: スキニング済みFBXファイルパス（スキニング済みモデル）
+    
+    Returns:
+        success: True/False
+        logs: "スケルトン・スキニングマージ完了: /path/to/merged.fbx"
+        output_files: {"merged_fbx": "/path/to/merged.fbx"}
+        
+    Note: 
+        - Step4の責務: スケルトンとスキンウェイトのマージ
+        - テクスチャ処理はStep5（UV・マテリアル・テクスチャ統合）で実行
+        - パラメータ順序: --source=skeleton_fbx, --target=skinned_fbx (README_ORIGINAL.md準拠)
+    """
+```
+- **目的**: スケルトン（Step2）とスキニング（Step3）出力のマージ - テクスチャ処理ではない
+- **入力**: スケルトンFBXファイルパス + スキニング済みFBXファイルパス
+- **出力**: マージ済みFBXファイルパス（スケルトン + スキニング結合）
+- **独立性**: スケルトン・スキニングマージのみに焦点を当て、テクスチャ処理は除外
+- **基盤スクリプト**: このモジュールは `launch/inference/merge.sh` の機能をカプセル化します。このスクリプトは `python -m src.inference.merge` を呼び出し、スケルトンとスキニング済みモデルのパラメータを渡します。
+
+#### 例 Step 5 インターフェース - UV・マテリアル・テクスチャ統合
+```python
+def integrate_uv_material_texture(model_name: str, merged_fbx: str, original_file: str) -> tuple[bool, str, dict]:
+    """
+    Step5: UV座標転送、マテリアル復元、テクスチャ統合（Blender専用処理）
+    
+    Args:
+        model_name: モデル識別子名
+        merged_fbx: マージ済みFBXファイルパス（Step4出力）
         original_file: オリジナルモデルファイルパス
     
     Returns:
         success: True/False
-        logs: "テクスチャ統合完了: /path/to/final.fbx"
-        output_files: {"final_fbx": "/path/to/final.fbx"}
+        logs: "UV・マテリアル・テクスチャ統合完了: /path/to/final.fbx"
+        output_files: {"final_textured_fbx": "/path/to/final.fbx"}
+        
+    Note: 
+        - Step5の責務: UV座標転送、マテリアル復元、テクスチャ統合
+        - Blender専用処理: GitHubパターン学習による確実なUV転送
+        - FBXテクスチャパッキング: embed_textures=True対応
     """
 ```
-- **目的**: オリジナルのテクスチャ統合と最終出力
-- **入力**: リグ済みFBXファイルパス、オリジナルモデルファイルパス（例）
-- **出力**: 最終FBXファイルパス（テクスチャ付き）（例）
-- **独立性**: テクスチャ処理のみに焦点を当て、他の機能との干渉なし
-- **基盤スクリプト**: このモジュールは `launch/inference/merge.sh` の機能をカプセル化します。このスクリプトは `python -m src.inference.merge` を呼び出し、ソース（オリジナルモデル）、ターゲット（スキニング済みモデル）、出力ファイルパスなどのパラメータを渡します。
 
 ## ⚠️ Step1-Step4データフロー統合の重要な知見（2025年1月3日追加）
 

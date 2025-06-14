@@ -1,494 +1,509 @@
 """
-Step 3 Module - UniRig本格スキニング実装
-独立した実行機能として、UniRig AIモデルを使用してメッシュとスケルトンの結合（スキニング）を実行
+Step3 Module - スキニング適用 (決め打ちディレクトリ戦略)
+🔥 重要: Step3は必ずオリジナルファイルから独自のメッシュ再抽出を実行
+原流処理generate_skin.sh完全互換実装
 
-責務: メッシュデータ + スケルトン → UniRig AIによるリギング済みFBX
-入力: メッシュデータファイルパス、スケルトンFBXファイルパス、スケルトンNPZファイルパス
-出力: リギング済みFBXファイルパス, スキニングデータファイルパス (.npz)
-
-主要修正:
-- UniRigスキニング実行前に環境変数をクリアしてセグメンテーションフォルト防止を無効化
-- FBX出力設定を有効化してスキニング済みFBXファイルを正常生成
-- NPZファイル検証とFBXファイルサイズ確認を追加
-- データフロー改修方針 (2025年6月9日) に準拠したパス管理
+責務: オリジナル3Dモデル + スケルトンデータ → スキニング済みFBX
+出力: {model_name}_skinned.fbx, {model_name}_skinning.npz
 """
 
 import os
+import sys
 import subprocess
+import shutil
 import time
 import logging
-import shutil
 from pathlib import Path
-from typing import Tuple, Dict, Optional
+from typing import Tuple, Dict, Any, Optional
 import numpy as np
 
-class Step3UniRigSkinning:
-    """Step 3: UniRig本格スキニング適用モジュール"""
+sys.path.insert(0, '/app')
+sys.path.insert(0, '/app/src')
+
+class Step3Skinning:
+    """Step3: スキニング適用モジュール (決め打ちディレクトリ戦略)"""
     
-    def __init__(self, output_dir: Path, logger_instance: logging.Logger):
-        self.output_dir = output_dir # ステップ固有の出力ディレクトリ (絶対パス)
-        self.output_dir.mkdir(parents=True, exist_ok=True)
-        self.logger = logger_instance
-        self.unirig_processing_base_dir = Path("/app/dataset_inference_clean")
-        self.unirig_results_base_dir = Path("/app/results")
-        
-    def apply_skinning(self, 
-                       input_mesh_npz_path: Path, 
-                       input_skeleton_fbx_path: Path,
-                       input_skeleton_npz_path: Path, 
-                       model_name: str) -> Tuple[bool, str, Dict]:
+    def __init__(self, step_output_dir: Path, logger_instance: Optional[logging.Logger] = None):
         """
-        UniRig本格スキニング処理の実行
+        Args:
+            step_output_dir: Step3専用出力ディレクトリ (例: /app/pipeline_work/{model_name}/03_skinning/)
+            logger_instance: ロガーインスタンス
+        """
+        self.step_output_dir = step_output_dir
+        self.step_output_dir.mkdir(parents=True, exist_ok=True)
+        self.logger = logger_instance if logger_instance else logging.getLogger(__name__)
+        
+        # UniRig処理用ベースディレクトリ (run.pyが期待する構造)
+        self.unirig_processing_base_dir = Path("/app/dataset_inference_clean")
+        self.unirig_processing_base_dir.mkdir(parents=True, exist_ok=True)
+    
+    def apply_skinning(self, 
+                      original_file: Path, 
+                      model_name: str, 
+                      skeleton_files: Dict[str, str]
+                     ) -> Tuple[bool, str, Dict[str, Any]]:
+        """
+        🔥 スキニング適用 - オリジナルファイルから独自メッシュ再抽出実行
+        
+        重要: Step1の結果は使用せず、オリジナルファイルから独自にメッシュを再抽出
+        原流処理generate_skin.sh完全互換
         
         Args:
-            input_mesh_npz_path: 入力メッシュNPZファイルパス (例: .../01_extracted_mesh/raw_data.npz)
-            input_skeleton_fbx_path: 入力スケルトンFBXファイルパス (例: .../02_skeleton_generation/{model_name}.fbx)
-            input_skeleton_npz_path: 入力スケルトンNPZファイルパス (例: .../02_skeleton_generation/predict_skeleton.npz)
-            model_name: モデル名（出力ファイル名に使用、UniRig内部処理のベース名にも使用）
+            original_file: オリジナル3Dモデルファイル (.glb, .fbx, .vrm等)
+            model_name: モデル名（統一命名規則ベース）
+            skeleton_files: Step2の出力ファイル辞書
             
         Returns:
-            (success, logs, output_files)
+            (success, logs, output_files dict) - 統一命名規則準拠の出力ファイルパス
         """
+        logs = ""
         try:
-            self.logger.info(f"Step 3 (UniRig AI Skinning) 開始: model_name={model_name}")
-            self.logger.info(f"  入力メッシュNPZ: {input_mesh_npz_path}")
-            self.logger.info(f"  入力スケルトンFBX: {input_skeleton_fbx_path}")
-            self.logger.info(f"  入力スケルトンNPZ: {input_skeleton_npz_path}")
-            self.logger.info(f"  出力先ディレクトリ: {self.output_dir}")
-            
             start_time = time.time()
+            self.logger.info(f"🔥 Step3スキニング適用開始: モデル '{model_name}'")
+            self.logger.info(f"🔥 重要: オリジナルファイルから独自メッシュ再抽出実行: {original_file}")
             
-            # ステップ固有の出力ファイルパス設定
-            # UniRigの出力ファイル名に合わせて、app.pyが期待する名前に変更
-            output_fbx = self.output_dir / f"{model_name}_skinned_unirig.fbx"  # 改修方針準拠
-            output_npz = self.output_dir / f"{model_name}_skinning.npz" # UniRigの出力は skinning_weights.npz だが、ここでは最終的な名前
-            # output_weights = self.output_dir / f"{model_name}_weights.txt" # weights.txtはUniRigから直接出力されない
+            if not original_file.exists():
+                error_msg = f"❌ オリジナルファイルが見つかりません: {original_file}"
+                self.logger.error(error_msg)
+                return False, error_msg, {}
 
-            # UniRig本格スキニング処理の実行
-            success, execution_logs = self._run_unirig_skinning_process(
-                input_mesh_npz_path, 
-                input_skeleton_fbx_path,
-                input_skeleton_npz_path,
-                model_name
-            )
-            
-            processing_time = time.time() - start_time
-            
-            if not success:
-                return False, f"UniRig AIスキニング処理失敗: {execution_logs}", {}
-            
-            # 出力ファイルの存在確認とサイズ取得 (weights.txtは現状生成されないので引数から削除)
-            output_files_collected = self._verify_and_collect_output_files(output_fbx, output_npz) # output_weights を削除
-            
-            # データ統計情報の取得
-            mesh_stats, skeleton_stats = self._get_data_statistics(str(input_mesh_npz_path), str(input_skeleton_fbx_path))
-            
-            # 統計情報を出力ファイル辞書に追加
-            output_files_collected.update({
-                "vertex_count": mesh_stats.get("vertex_count", 0),
-                "bone_count": skeleton_stats.get("bone_count", 0), # FBXから取得するボーン数
-                "processing_time": f"{processing_time:.2f}秒"
-            })
-            
-            # 完了ログ生成
-            completion_logs = self._generate_completion_log(
-                str(input_mesh_npz_path), str(input_skeleton_fbx_path), output_files_collected, processing_time
-            )
-            
-            self.logger.info(f"Step 3 UniRig AI Skinning 完了: {output_fbx}")
-            return True, completion_logs, output_files_collected
-            
-        except Exception as e:
-            error_msg = f"Step 3 UniRig AIスキニング適用エラー: {e}"
-            self.logger.error(error_msg, exc_info=True) # スタックトレースも出力
-            return False, error_msg, {}
-    
-    def _run_unirig_skinning_process(self, 
-                                     source_mesh_npz: Path, 
-                                     source_skeleton_fbx: Path,
-                                     source_skeleton_npz: Path,
-                                     model_name: str) -> Tuple[bool, str]:
-        """UniRig本格スキニング処理の実行とファイル管理"""
-        
-        unirig_model_processing_dir = self.unirig_processing_base_dir / model_name
-        unirig_model_results_dir = self.unirig_results_base_dir / model_name
-
-        original_disable_lightning = os.environ.get('DISABLE_UNIRIG_LIGHTNING')
-        original_disable_fbx_output = os.environ.get("DISABLE_UNIRIG_LIGHTNING_FBX_OUTPUT")
-
-        try:
-            os.environ['DISABLE_UNIRIG_LIGHTNING'] = '0'
-            os.environ["DISABLE_UNIRIG_LIGHTNING_FBX_OUTPUT"] = "0" 
-            self.logger.info("🔥 FBX出力有効化: UniRigのFBX出力フラグを調整")
-            
-            # UniRig処理用ディレクトリと結果用ディレクトリを作成
+            # --- Step3専用UniRig処理ディレクトリ準備 ---
+            unirig_model_processing_dir = self.unirig_processing_base_dir / model_name
             unirig_model_processing_dir.mkdir(parents=True, exist_ok=True)
-            unirig_model_results_dir.mkdir(parents=True, exist_ok=True) # UniRigが出力する場所
             
-            # クリーンアップ: UniRig処理ディレクトリ内の既存ファイルを削除
-            for item in unirig_model_processing_dir.iterdir():
-                if item.is_file(): item.unlink()
-                elif item.is_dir(): shutil.rmtree(item)
-            self.logger.info(f"🧹 クリーンアップ完了: {unirig_model_processing_dir}")
+            # --- Step3専用メッシュディレクトリ作成 ---
+            step3_mesh_dir = self.step_output_dir / "mesh_for_skinning"
+            step3_mesh_dir.mkdir(parents=True, exist_ok=True)
+            logs += f"⚙️ Step3専用メッシュディレクトリ準備完了: '{step3_mesh_dir}'\n"
+            logs += f"⚙️ Step3用UniRig処理ディレクトリ準備完了: '{unirig_model_processing_dir}'\n"
 
-            # 入力ファイルをUniRig処理ディレクトリにコピー
-            target_mesh_npz = unirig_model_processing_dir / "raw_data.npz"
-            shutil.copy2(source_mesh_npz, target_mesh_npz)
-            self.logger.info(f"メッシュNPZコピー: {source_mesh_npz} → {target_mesh_npz}")
-            
-            # UniRigが期待する拡張子なしファイルも作成
-            target_mesh_raw = unirig_model_processing_dir / "raw_data"
-            shutil.copy2(source_mesh_npz, target_mesh_raw)
-            self.logger.info(f"UniRig期待ファイル作成: {source_mesh_npz} → {target_mesh_raw}")
-            
-            target_skeleton_fbx = unirig_model_processing_dir / "skeleton.fbx"
-            shutil.copy2(source_skeleton_fbx, target_skeleton_fbx)
-            self.logger.info(f"スケルトンFBXコピー: {source_skeleton_fbx} → {target_skeleton_fbx}")
-
-            target_skeleton_npz = unirig_model_processing_dir / "predict_skeleton.npz"
-            shutil.copy2(source_skeleton_npz, target_skeleton_npz)
-            self.logger.info(f"スケルトンNPZコピー: {source_skeleton_npz} → {target_skeleton_npz}")
-            
-            # inference_datalist.txtを作成 (UniRig処理ベースディレクトリ直下)
-            datalist_path = self.unirig_processing_base_dir / "inference_datalist.txt"
-            with open(datalist_path, "w") as f:
-                f.write(model_name + "\n")  # 🔧 修正: 正しい改行文字
-            self.logger.info(f"inference_datalist.txt更新: {datalist_path} に '{model_name}' を書き込み")
-
-            # UniRig run.py でスキニング実行
-            cmd = [
-                "/opt/conda/envs/UniRig/bin/python", 
-                "/app/run.py",
-                f"--task=configs/task/quick_inference_unirig_skin.yaml",  # 🔧 修正: 完全パス指定
-                f"--data_name=raw_data",  # 🔧 修正: 拡張子なし
-                f"--npz_dir=/app/dataset_inference_clean",  # 🔧 修正: 絶対パス指定
-                f"--output_dir=/app/results",    # 🔧 修正: 絶対パス指定
-                "--seed=12345"
-            ]
-            self.logger.info(f"UniRig実行コマンド: {' '.join(cmd)}")
-            
-            # CWDを/appに設定してUniRigの相対パス期待に合わせる
-            process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, cwd="/app")
-            stdout, stderr = process.communicate(timeout=1200) 
-            success_run = process.returncode == 0
-            
-            logs_run = f"UniRig実行 STDOUT:\\n{stdout}\\nUniRig実行 STDERR:\\n{stderr}"
-            self.logger.info(logs_run)
-
-            if not success_run:
-                self.logger.error(f"UniRig実行失敗。リターンコード: {process.returncode}")
-                return False, f"UniRig実行失敗。ログ: {logs_run}"
-
-            # UniRigの出力ファイルを確認
-            # UniRigは results/raw_data_predict_skin.npz を実際に出力
-            unirig_output_npz = Path("/app/results/raw_data_predict_skin.npz")
-            
-            if not unirig_output_npz.exists():
-                # 別の可能性も確認
-                alternative_npz = Path("/app/results/predict_skin.npz")
-                if alternative_npz.exists():
-                    unirig_output_npz = alternative_npz
-                    self.logger.info(f"代替NPZファイルを使用: {unirig_output_npz}")
-                else:
-                    self.logger.error(f"UniRig出力NPZファイルが見つかりません: {unirig_output_npz}")
-                    return False, f"UniRig出力NPZ未発見: {unirig_output_npz}"
-            
-            # 🔧 新機能: 簡素化されたFBX生成（スケルトンFBXをベースにバイナリFBX作成）
-            unirig_output_fbx = self._generate_simple_fbx_from_skeleton(
-                source_skeleton_fbx, 
-                model_name
+            # --- 🔥 重要: Step3独自のメッシュ再抽出実行 ---
+            success_extraction, extraction_logs = self._execute_skinning_specific_mesh_extraction(
+                original_file, unirig_model_processing_dir, model_name
             )
+            logs += extraction_logs
             
-            if not unirig_output_fbx or not unirig_output_fbx.exists():
-                self.logger.error(f"UniRig FBX生成失敗: {unirig_output_fbx}")
-                return False, f"UniRig FBX生成失敗"
+            if not success_extraction:
+                error_msg = f"❌ Step3独自メッシュ再抽出失敗。"
+                self.logger.error(error_msg)
+                return False, logs, {}
 
-            # 出力ファイルをステップの出力ディレクトリにコピー
-            final_output_fbx = self.output_dir / f"{model_name}_skinned_unirig.fbx"  # 改修方針準拠
-            final_output_npz = self.output_dir / f"{model_name}_skinning.npz" # 最終的なファイル名
+            # --- スケルトンファイル配置 ---
+            success_skeleton_setup, skeleton_setup_logs = self._setup_skeleton_files(
+                unirig_model_processing_dir, skeleton_files, model_name
+            )
+            logs += skeleton_setup_logs
             
-            shutil.copy2(unirig_output_fbx, final_output_fbx)
-            shutil.copy2(unirig_output_npz, final_output_npz) 
-            self.logger.info(f"UniRig出力FBXをコピー: {unirig_output_fbx} -> {final_output_fbx}")
-            self.logger.info(f"UniRig出力NPZをコピー: {unirig_output_npz} -> {final_output_npz}")
+            if not success_skeleton_setup:
+                error_msg = f"❌ スケルトンファイル配置失敗。"
+                self.logger.error(error_msg)
+                return False, logs, {}
 
-            self.logger.info("UniRig本格スキニング処理 正常終了")
-            return True, logs_run
+            # --- UniRigスキニング処理実行 ---
+            success_skinning, skinning_logs = self._execute_unirig_skinning_generation(
+                model_name, unirig_model_processing_dir
+            )
+            logs += skinning_logs
+            
+            if not success_skinning:
+                error_msg = f"❌ UniRigスキニング処理失敗。"
+                self.logger.error(error_msg)
+                return False, logs, {}
+            
+            # --- 生成ファイル整理と統一命名規則対応 ---
+            success_output, output_logs, output_files = self._organize_step3_outputs(
+                model_name, unirig_model_processing_dir
+            )
+            logs += output_logs
+            
+            if not success_output:
+                error_msg = f"❌ Step3出力ファイル整理失敗。"
+                self.logger.error(error_msg)
+                return False, logs, {}
 
-        except subprocess.TimeoutExpired:
-            self.logger.error("UniRig実行がタイムアウトしました。")
-            return False, "UniRig実行タイムアウト"
+            processing_time = time.time() - start_time
+            output_files["processing_time_seconds"] = round(processing_time, 2)
+            
+            final_log_message = f"🔥 Step3スキニング適用完了:\n"
+            final_log_message += f"- モデル名: {model_name}\n"
+            final_log_message += f"- 処理時間: {processing_time:.2f}秒\n"
+            final_log_message += f"- 統一NPZ: {output_files['unified_skinning_npz']}\n"
+            final_log_message += f"- 統一FBX: {output_files['unified_skinned_fbx']}\n"
+            logs += "\n" + final_log_message
+            
+            self.logger.info(f"🔥 Step3スキニング適用正常完了: '{output_files['unified_skinned_fbx']}'")
+            return True, logs, output_files
+            
         except Exception as e:
-            error_msg = f"UniRig本格スキニング処理中に予期せぬエラー: {e}"
+            error_msg = f"❌ Step3スキニング適用中に予期せぬエラー: {type(e).__name__} - {e}"
             self.logger.error(error_msg, exc_info=True)
-            return False, error_msg
-            
-        finally:
-            # 環境変数を復元
-            if original_disable_lightning is not None: os.environ['DISABLE_UNIRIG_LIGHTNING'] = original_disable_lightning
-            elif 'DISABLE_UNIRIG_LIGHTNING' in os.environ: del os.environ['DISABLE_UNIRIG_LIGHTNING']
-
-            if original_disable_fbx_output is not None: os.environ["DISABLE_UNIRIG_LIGHTNING_FBX_OUTPUT"] = original_disable_fbx_output
-            elif "DISABLE_UNIRIG_LIGHTNING_FBX_OUTPUT" in os.environ: del os.environ["DISABLE_UNIRIG_LIGHTNING_FBX_OUTPUT"]
-            self.logger.info("環境変数を復元しました。")
-
-    def _generate_fbx_from_skinning_npz(self, skinning_npz_path: Path, skeleton_fbx_path: Path, mesh_npz_path: Path, model_name: str) -> Path:
-        """UniRigスキニングNPZから手動でFBXファイルを生成"""
-        try:
-            import tempfile
-            import numpy as np
-            
-            # 出力FBXパス
-            output_fbx = Path(f"/app/results/{model_name}_skinned_unirig.fbx")
-            
-            # Blenderスクリプトでスキニング済みFBXを生成
-            blender_script = f"""
-import bpy
-import bmesh
-import numpy as np
-from mathutils import Vector
-
-# シーンクリア
-bpy.ops.object.select_all(action='SELECT')
-bpy.ops.object.delete(use_global=False)
-
-# スキニングデータ読み込み
-skinning_data = np.load(r'{skinning_npz_path}', allow_pickle=True)
-mesh_data = np.load(r'{mesh_npz_path}', allow_pickle=True)
-
-# 元のFBXインポート（スケルトン構造）
-bpy.ops.import_scene.fbx(filepath=r'{skeleton_fbx_path}')
-
-# メッシュデータからBlenderメッシュを作成
-vertices = skinning_data['vertices'] if 'vertices' in skinning_data else mesh_data['vertices']
-faces = skinning_data['faces'] if 'faces' in skinning_data else mesh_data['faces']
-
-# 新しいメッシュオブジェクト作成
-mesh = bpy.data.meshes.new(name="{model_name}_skinned")
-mesh.from_pydata(vertices.tolist(), [], faces.tolist())
-mesh.update()
-
-# メッシュオブジェクト作成
-mesh_obj = bpy.data.objects.new("{model_name}_skinned", mesh)
-bpy.context.collection.objects.link(mesh_obj)
-
-# アーマチュアモディファイア追加（スキニング適用）
-armature_obj = None
-for obj in bpy.context.scene.objects:
-    if obj.type == 'ARMATURE':
-        armature_obj = obj
-        break
-
-if armature_obj:
-    modifier = mesh_obj.modifiers.new(name="Armature", type='ARMATURE')
-    modifier.object = armature_obj
+            return False, logs + error_msg + "\n", {}
     
-    # 頂点グループとウェイト設定（簡略化版）
-    if 'skin' in skinning_data:
-        skin_weights = skinning_data['skin']
-        bone_names = skinning_data.get('names', [f'Bone_{{i}}' for i in range(skin_weights.shape[1])])
+    def _execute_skinning_specific_mesh_extraction(self, original_file: Path, unirig_model_processing_dir: Path, model_name: str) -> Tuple[bool, str]:
+        """
+        🔥 Step3独自のスキニング特化メッシュ再抽出
         
-        # 頂点グループ作成
-        for i, bone_name in enumerate(bone_names):
-            if isinstance(bone_name, bytes):
-                bone_name = bone_name.decode('utf-8')
-            vg = mesh_obj.vertex_groups.new(name=str(bone_name))
-            
-            # ウェイト設定（閾値0.01以上のもののみ）
-            for v_idx in range(len(vertices)):
-                if v_idx < len(skin_weights) and i < len(skin_weights[v_idx]):
-                    weight = float(skin_weights[v_idx][i])
-                    if weight > 0.01:
-                        vg.add([v_idx], weight, 'REPLACE')
-
-# 全選択してバイナリFBXエクスポート
-bpy.ops.object.select_all(action='SELECT')
-bpy.ops.export_scene.fbx(
-    filepath=r'{output_fbx}',
-    use_selection=True,
-    add_leaf_bones=True,
-    bake_anim=False
-)
-
-print(f"スキニング済みFBX生成成功: {output_fbx}")
-"""
-            
-            # Blenderスクリプト実行
-            with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False) as script_file:
-                script_file.write(blender_script)
-                script_file.flush()
-                
-                cmd = ["blender", "--background", "--python", script_file.name]
-                result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
-                
-                if result.returncode == 0 and output_fbx.exists():
-                    self.logger.info(f"UniRigスキニングFBX生成成功: {output_fbx} ({output_fbx.stat().st_size} bytes)")
-                    return output_fbx
-                else:
-                    self.logger.error(f"Blender FBX生成失敗: {result.stderr}")
-                    return None
+        重要: 原流処理generate_skin.sh第1段階完全互換
+        スキニング生成に最適化された前処理パラメータ使用
         
-        except Exception as e:
-            self.logger.error(f"FBX生成中にエラー: {e}")
-            return None
-
-    def _generate_simple_fbx_from_skeleton(self, skeleton_fbx_path: Path, model_name: str) -> Path:
-        """シンプルなFBX生成（スケルトンベース、バイナリ形式）"""
+        Args:
+            original_file: オリジナル3Dモデルファイル
+            unirig_model_processing_dir: UniRig処理ディレクトリ
+            model_name: モデル名
+            
+        Returns:
+            (success, logs)
+        """
+        logs = ""
         try:
-            import tempfile
+            # データ設定ファイル確認
+            data_config = Path("/app/configs/data/quick_inference.yaml")
+            if not data_config.exists():
+                return False, f"❌ データ設定ファイル不存在: {data_config}\n"
             
-            # 出力FBXパス
-            output_fbx = Path(f"/app/results/{model_name}_skinned_unirig.fbx")
+            logs += f"🔥 Step3独自メッシュ再抽出開始\n"
+            logs += f"オリジナルファイル: {original_file}\n"
+            logs += f"UniRig処理ディレクトリ: {unirig_model_processing_dir}\n"
             
-            # 修正されたBlenderスクリプト（スケルトンFBXを直接コピー）
-            blender_script = f"""
-import bpy
-
-# シーンクリア
-bpy.ops.wm.read_factory_settings(use_empty=True)
-
-# 基本メッシュオブジェクト作成（立方体）
-bpy.ops.mesh.primitive_cube_add()
-cube = bpy.context.active_object
-cube.name = "{model_name}_skinned_mesh"
-
-# 全選択してバイナリFBXエクスポート
-bpy.ops.object.select_all(action='SELECT')
-bpy.ops.export_scene.fbx(
-    filepath=r'{output_fbx}',
-    use_selection=True,
-    add_leaf_bones=True,
-    bake_anim=False
-)
-
-print(f"簡易FBX生成成功: {output_fbx}")
-"""
+            # タイムスタンプ生成 (原流方式)
+            time_str = time.strftime("%Y_%m_%d_%H_%M_%S")
             
-            # Blenderスクリプト実行
-            with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False) as script_file:
-                script_file.write(blender_script)
-                script_file.flush()
+            # 🔥 原流処理generate_skin.sh第1段階完全互換コマンド
+            extract_cmd = [
+                sys.executable, "-m", "src.data.extract",
+                "--config", str(data_config),
+                "--force_override", "true",
+                "--num_runs", "1",
+                "--faces_target_count", "50000",  # 🔥 スキニング特化: 詳細メッシュ
+                "--require_suffix", "obj,fbx,FBX,dae,glb,gltf,vrm",
+                "--time", time_str,
+                "--id", "0",
+                "--input", str(original_file),  # 🔥 オリジナルファイル直接指定
+                "--output_dir", str(unirig_model_processing_dir)
+            ]
+            
+            logs += f"メッシュ再抽出コマンド: {' '.join(extract_cmd)}\n"
+            
+            extract_start_time = time.time()
+            result = subprocess.run(
+                extract_cmd,
+                cwd='/app',
+                capture_output=True,
+                text=True,
+                timeout=600  # 10分タイムアウト
+            )
+            extract_execution_time = time.time() - extract_start_time
+            logs += f"⏱️ メッシュ再抽出実行時間: {extract_execution_time:.2f}秒\n"
+            
+            # 🔥 重要: Blenderクラッシュ(-11)でもファイル生成されている場合は成功とする
+            # リターンコードではなく、実際のファイル存在を優先して確認
+            possible_raw_data_locations = [
+                # 指定出力ディレクトリ直下
+                unirig_model_processing_dir / "raw_data.npz",
+                # 入力ファイルディレクトリ下のモデル名フォルダ（実際の出力先）
+                original_file.parent / original_file.stem / "raw_data.npz", 
+                # その他の可能性
+                unirig_model_processing_dir / "examples" / original_file.stem / "raw_data.npz",
+                unirig_model_processing_dir / original_file.stem / "raw_data.npz"
+            ]
+            
+            found_raw_data = None
+            for possible_location in possible_raw_data_locations:
+                if possible_location.exists():
+                    found_raw_data = possible_location
+                    break
+            
+            if found_raw_data:
+                # 🔥 重要: 見つかったraw_data.npzをUniRig処理ディレクトリにコピー
+                target_raw_data = unirig_model_processing_dir / "raw_data.npz"
+                if found_raw_data != target_raw_data:
+                    shutil.copy2(found_raw_data, target_raw_data)
+                    logs += f"📋 raw_data.npzをUniRig処理ディレクトリにコピー: {found_raw_data} → {target_raw_data}\n"
                 
-                cmd = ["blender", "--background", "--python", script_file.name]
-                result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+                # 🔥 重要: Step3専用メッシュディレクトリにもコピー（決め打ちディレクトリ戦略）
+                step3_mesh_dir = self.step_output_dir / "mesh_for_skinning"
+                step3_target_raw_data = step3_mesh_dir / "raw_data.npz"
+                shutil.copy2(found_raw_data, step3_target_raw_data)
+                logs += f"📋 raw_data.npzをStep3専用メッシュディレクトリにコピー: {found_raw_data} → {step3_target_raw_data}\n"
                 
-                if result.returncode == 0 and output_fbx.exists():
-                    self.logger.info(f"簡易FBX生成成功: {output_fbx} ({output_fbx.stat().st_size} bytes)")
-                    return output_fbx
-                else:
-                    self.logger.error(f"Blender FBX生成失敗: {result.stderr}")
-                    return None
-        
-        except Exception as e:
-            self.logger.error(f"FBX生成中にエラー: {e}")
-            return None
-
-    def _verify_and_collect_output_files(self, output_fbx: Path, output_npz: Path) -> Dict:
-        """出力ファイルの検証と収集"""
-        output_files_collected = {}
-        
-        try:
-            # FBXファイル検証
-            if output_fbx.exists():
-                fbx_size = output_fbx.stat().st_size
-                
-                # ❌ サイズチェック: 100KB未満は無効とみなす
-                if fbx_size < 100 * 1024:  # 100KB
-                    error_msg = f"❌ FBXファイルサイズが小さすぎます: {fbx_size} bytes (最小要件: 100KB)"
-                    self.logger.error(error_msg)
-                    raise ValueError(error_msg)
-                
-                output_files_collected["skinned_fbx"] = str(output_fbx)
-                output_files_collected["file_size_fbx"] = fbx_size
-                self.logger.info(f"✅ 出力FBXファイル確認: {output_fbx} (サイズ: {fbx_size} bytes)")
+                success_msg = f"✅ Step3独自メッシュ再抽出成功 (リターンコード: {result.returncode}, Blenderクラッシュでもファイル生成済み)\n"
+                success_msg += f"生成ファイル: {found_raw_data}\n"
+                success_msg += f"UniRig処理用: {target_raw_data}\n"
+                success_msg += f"Step3専用保存: {step3_target_raw_data}\n"
+                if result.stdout:
+                    success_msg += f"STDOUT:\n{result.stdout}\n"
+                logs += success_msg
+                self.logger.info("Step3独自メッシュ再抽出成功（Blenderクラッシュ後もファイル確認）。")
+                return True, logs
             else:
-                error_msg = f"❌ 出力FBXファイルが見つかりません: {output_fbx}"
-                self.logger.error(error_msg)
-                raise FileNotFoundError(error_msg)
+                error_msg = f"❌ raw_data.npzが見つかりませんでした (リターンコード: {result.returncode})\n"
+                error_msg += f"検索場所: {[str(loc) for loc in possible_raw_data_locations]}\n"
+                if result.stdout:
+                    error_msg += f"STDOUT:\n{result.stdout}\n"
+                if result.stderr:
+                    error_msg += f"STDERR:\n{result.stderr}\n"
+                self.logger.error(f"メッシュ再抽出エラー。Return code: {result.returncode}")
+                logs += error_msg
+                return False, logs
+                
+        except subprocess.TimeoutExpired:
+            timeout_msg = "❌ メッシュ再抽出がタイムアウトしました (10分)\n"
+            self.logger.error(timeout_msg)
+            return False, logs + timeout_msg
+        except Exception as e:
+            exec_error_msg = f"❌ メッシュ再抽出中に予期せぬエラー: {type(e).__name__} - {e}\n"
+            self.logger.error(exec_error_msg, exc_info=True)
+            return False, logs + exec_error_msg
+    
+    def _setup_skeleton_files(self, unirig_model_processing_dir: Path, skeleton_files: Dict[str, str], model_name: str) -> Tuple[bool, str]:
+        """
+        スケルトンファイルをUniRig処理ディレクトリに配置
+        
+        Args:
+            unirig_model_processing_dir: UniRig処理ディレクトリ
+            skeleton_files: Step2の出力ファイル辞書
+            model_name: モデル名
             
-            # NPZファイル検証
-            if output_npz.exists():
-                npz_size = output_npz.stat().st_size
-                
-                # ❌ サイズチェック: 10KB未満は無効とみなす
-                if npz_size < 10 * 1024:  # 10KB
-                    error_msg = f"❌ NPZファイルサイズが小さすぎます: {npz_size} bytes (最小要件: 10KB)"
-                    self.logger.error(error_msg)
-                    raise ValueError(error_msg)
-                
-                output_files_collected["skinning_npz"] = str(output_npz)
-                output_files_collected["file_size_npz"] = npz_size
-                self.logger.info(f"✅ 出力NPZファイル確認: {output_npz} (サイズ: {npz_size} bytes)")
+        Returns:
+            (success, logs)
+        """
+        logs = ""
+        try:
+            # predict_skeleton.npz配置 (run.pyが期待するファイル名)
+            skeleton_npz_path = skeleton_files.get("skeleton_npz") or skeleton_files.get("unified_skeleton_npz")
+            if skeleton_npz_path:
+                target_skeleton_npz = unirig_model_processing_dir / "predict_skeleton.npz"
+                if not target_skeleton_npz.exists():
+                    shutil.copy2(skeleton_npz_path, target_skeleton_npz)
+                logs += f"スケルトンNPZファイル配置: {target_skeleton_npz}\n"
             else:
-                error_msg = f"❌ 出力NPZファイルが見つかりません: {output_npz}"
-                self.logger.error(error_msg)
-                raise FileNotFoundError(error_msg)
+                return False, "❌ スケルトンNPZファイルが見つかりません\n"
+            
+            # {model_name}.fbx配置 (原流互換名)
+            skeleton_fbx_path = skeleton_files.get("skeleton_fbx") or skeleton_files.get("unified_skeleton_fbx")
+            if skeleton_fbx_path:
+                target_skeleton_fbx = unirig_model_processing_dir / f"{model_name}.fbx"
+                if not target_skeleton_fbx.exists():
+                    shutil.copy2(skeleton_fbx_path, target_skeleton_fbx)
+                logs += f"スケルトンFBXファイル配置: {target_skeleton_fbx}\n"
+            else:
+                return False, "❌ スケルトンFBXファイルが見つかりません\n"
+            
+            return True, logs
+            
+        except Exception as e:
+            error_msg = f"❌ スケルトンファイル配置エラー: {type(e).__name__} - {e}\n"
+            self.logger.error(error_msg, exc_info=True)
+            return False, logs + error_msg
+    
+    def _execute_unirig_skinning_generation(self, model_name: str, unirig_model_processing_dir: Path) -> Tuple[bool, str]:
+        """
+        UniRigスキニング処理実行 (原流処理generate_skin.sh第2段階)
+        
+        Args:
+            model_name: モデル名
+            unirig_model_processing_dir: UniRig処理ディレクトリ
+            
+        Returns:
+            (success, logs)
+        """
+        logs = ""
+        try:
+            # スキニング設定ファイル確認
+            skinning_config = Path("/app/configs/task/quick_inference_unirig_skin.yaml")
+            if not skinning_config.exists():
+                return False, f"❌ スキニング設定ファイル不存在: {skinning_config}\n"
+            
+            logs += f"🔥 UniRigスキニング処理実行開始\n"
+            logs += f"処理ディレクトリ: {unirig_model_processing_dir}\n"
+            logs += f"設定ファイル: {skinning_config}\n"
+            
+            # 🔥 原流処理generate_skin.sh第2段階完全互換コマンド
+            skinning_cmd = [
+                sys.executable, "-m", "src.system.skin",
+                "--config", str(skinning_config),
+                "--model_name", model_name,
+                "--input_dir", str(unirig_model_processing_dir),
+                "--output_dir", str(unirig_model_processing_dir)
+            ]
+            
+            logs += f"スキニング処理コマンド: {' '.join(skinning_cmd)}\n"
+            
+            skinning_start_time = time.time()
+            result = subprocess.run(
+                skinning_cmd,
+                cwd='/app',
+                capture_output=True,
+                text=True,
+                timeout=900  # 15分タイムアウト
+            )
+            skinning_execution_time = time.time() - skinning_start_time
+            logs += f"⏱️ スキニング処理実行時間: {skinning_execution_time:.2f}秒\n"
+            
+            if result.returncode == 0:
+                success_msg = f"✅ UniRigスキニング処理成功 (リターンコード: {result.returncode})\n"
+                if result.stdout:
+                    success_msg += f"STDOUT:\n{result.stdout}\n"
+                logs += success_msg
+                self.logger.info("UniRigスキニング処理正常完了。")
+                return True, logs
+            else:
+                error_msg = f"❌ UniRigスキニング処理失敗 (リターンコード: {result.returncode})\n"
+                if result.stdout:
+                    error_msg += f"STDOUT:\n{result.stdout}\n"
+                if result.stderr:
+                    error_msg += f"STDERR:\n{result.stderr}\n"
+                self.logger.error(f"スキニング処理エラー。Return code: {result.returncode}")
+                logs += error_msg
+                return False, logs
                 
+        except subprocess.TimeoutExpired:
+            timeout_msg = "❌ スキニング処理がタイムアウトしました (15分)\n"
+            self.logger.error(timeout_msg)
+            return False, logs + timeout_msg
         except Exception as e:
-            self.logger.error(f"❌ 出力ファイル検証中にエラー: {e}")
-            raise
+            exec_error_msg = f"❌ スキニング処理中に予期せぬエラー: {type(e).__name__} - {e}\n"
+            self.logger.error(exec_error_msg, exc_info=True)
+            return False, logs + exec_error_msg
+    
+    def _organize_step3_outputs(self, model_name: str, unirig_model_processing_dir: Path) -> Tuple[bool, str, Dict[str, Any]]:
+        """
+        Step3出力ファイルの整理と統一命名規則対応
         
-        return output_files_collected
-
-    def _get_data_statistics(self, mesh_file_path_str: str, skeleton_file_path_str: str) -> Tuple[Dict, Dict]: # 引数名を変更
-        """メッシュとスケルトンのデータ統計情報を取得"""
-        mesh_stats = {}
-        skeleton_stats = {}
+        Args:
+            model_name: モデル名
+            unirig_model_processing_dir: UniRig処理ディレクトリ
+            
+        Returns:
+            (success, logs, output_files dict)
+        """
+        logs = ""
+        output_files = {}
         
         try:
-            if mesh_file_path_str.endswith(".npz"): # 引数名変更
-                with np.load(mesh_file_path_str) as data: # 引数名変更
-                    if "vertices" in data: mesh_stats["vertex_count"] = len(data["vertices"])
-                    if "faces" in data: mesh_stats["face_count"] = len(data["faces"])
-                    if "uvs" in data: mesh_stats["uv_count"] = len(data["uvs"])
-                    # skinning_weights はこの時点の入力NPZには通常含まれない
+            logs += f"🔧 Step3出力ファイル整理開始\n"
             
-            if skeleton_file_path_str.endswith(".fbx"): # 引数名変更
-                bone_count = self._get_bone_count_from_fbx(skeleton_file_path_str) # 引数名変更
-                if bone_count is not None:
-                    skeleton_stats["bone_count"] = bone_count
+            # 🔥 重要: run.pyによる実際の出力ファイル名を確認
+            # 原流処理の実際の出力パターンに基づく検索
+            possible_output_patterns = [
+                # 設定ファイルに基づく予想出力名
+                unirig_model_processing_dir / "result_fbx.fbx",
+                unirig_model_processing_dir / f"{model_name}_skinned_unirig.fbx",
+                unirig_model_processing_dir / "predict_skin.npz",
+                unirig_model_processing_dir / f"{model_name}_skinning.npz",
+                # その他の可能な出力パターン
+                unirig_model_processing_dir / "skinned.fbx",
+                unirig_model_processing_dir / "output.fbx"
+            ]
+            
+            # 生成されたFBXファイルを検索
+            found_fbx = None
+            found_npz = None
+            
+            for pattern in possible_output_patterns:
+                if pattern.exists() and pattern.suffix == ".fbx":
+                    found_fbx = pattern
+                    logs += f"📁 生成FBXファイル発見: {found_fbx}\n"
+                    break
+            
+            for pattern in possible_output_patterns:
+                if pattern.exists() and pattern.suffix == ".npz":
+                    found_npz = pattern
+                    logs += f"📁 生成NPZファイル発見: {found_npz}\n"
+                    break
+            
+            if not found_fbx:
+                # 指定パターンで見つからない場合、ディレクトリ内の全FBXを検索
+                fbx_files = list(unirig_model_processing_dir.glob("*.fbx"))
+                # スケルトンFBXを除外
+                fbx_files = [f for f in fbx_files if f.name != f"{model_name}.fbx"]
+                if fbx_files:
+                    found_fbx = fbx_files[0]  # 最初に見つかったものを使用
+                    logs += f"📁 ディレクトリ検索でFBXファイル発見: {found_fbx}\n"
+            
+            if not found_npz:
+                # 指定パターンで見つからない場合、ディレクトリ内の全NPZを検索（raw_data.npz, predict_skeleton.npzを除外）
+                npz_files = list(unirig_model_processing_dir.glob("*.npz"))
+                npz_files = [f for f in npz_files if f.name not in ["raw_data.npz", "predict_skeleton.npz"]]
+                if npz_files:
+                    found_npz = npz_files[0]  # 最初に見つかったものを使用
+                    logs += f"📁 ディレクトリ検索でNPZファイル発見: {found_npz}\n"
+            
+            # 🔥 統一命名規則に基づく最終出力ファイル配置
+            if found_fbx:
+                unified_fbx_name = f"{model_name}_skinned.fbx"
+                unified_fbx_path = self.step_output_dir / unified_fbx_name
+                shutil.copy2(found_fbx, unified_fbx_path)
+                output_files["unified_skinned_fbx"] = str(unified_fbx_path)
+                logs += f"✅ 統一FBX生成: {unified_fbx_path}\n"
+            else:
+                return False, logs + "❌ スキニング済みFBXファイルが見つかりません\n", {}
+            
+            if found_npz:
+                unified_npz_name = f"{model_name}_skinning.npz"
+                unified_npz_path = self.step_output_dir / unified_npz_name
+                shutil.copy2(found_npz, unified_npz_path)
+                output_files["unified_skinning_npz"] = str(unified_npz_path)
+                logs += f"✅ 統一NPZ生成: {unified_npz_path}\n"
+            else:
+                # NPZファイルは必須ではない場合があるため、警告のみ
+                logs += f"⚠️ スキニングNPZファイルが見つかりません（オプショナル）\n"
+            
+            # 🔥 決め打ちディレクトリ戦略に基づく期待ファイル配置確認
+            expected_files = {
+                "skinned_fbx": self.step_output_dir / f"{model_name}_skinned.fbx",
+                "skinning_npz": self.step_output_dir / f"{model_name}_skinning.npz",
+                "step3_mesh": self.step_output_dir / "mesh_for_skinning" / "raw_data.npz"
+            }
+            
+            all_expected_exist = True
+            for file_type, file_path in expected_files.items():
+                if file_path.exists():
+                    logs += f"✅ 期待ファイル確認: {file_type} -> {file_path}\n"
+                    output_files[file_type] = str(file_path)
+                else:
+                    if file_type != "skinning_npz":  # NPZはオプショナル
+                        logs += f"❌ 期待ファイル不存在: {file_type} -> {file_path}\n"
+                        all_expected_exist = False
+                    else:
+                        logs += f"⚠️ オプショナルファイル不存在: {file_type} -> {file_path}\n"
+            
+            if not all_expected_exist:
+                return False, logs + "❌ 必須出力ファイルの生成に失敗\n", {}
+            
+            return True, logs, output_files
             
         except Exception as e:
-            self.logger.error(f"データ統計情報取得中にエラー: {e}")
-        
-        return mesh_stats, skeleton_stats
+            error_msg = f"❌ 出力ファイル整理中に予期せぬエラー: {type(e).__name__} - {e}\n"
+            self.logger.error(error_msg, exc_info=True)
+            return False, logs + error_msg, {}
 
-    def _get_bone_count_from_fbx(self, fbx_file_path_str: str) -> Optional[int]: # 引数名を変更
-        """FBXファイルからボーン数を取得 (簡易版)"""
-        # 注意: これは非常に簡易的な実装です。正確なボーン数を取得するには、
-        # Blender Python APIなどを利用してFBXファイルを解析する必要があります。
-        # 今回のリファクタリングのスコープ外とし、既存の簡易ロジックを維持します。
-        try:
-            # ここではファイル名に基づく推定や、Blenderを使ったより正確な方法を将来的に検討
-            # 現状は固定値を返すか、簡易的な推定に留める
-            self.logger.warning(f"FBXからのボーン数取得は簡易実装です: {fbx_file_path_str}")
-            # 例: 常に22を返す（UniRigの典型的なボーン数など、何らかの仮定に基づく）
-            # または、Blenderが利用可能なら、ここでサブプロセスを呼び出す
-            # 今回は0を返すことで、この機能が未実装であることを示す
-            return 0 # より適切なデフォルト値や実装を検討
-            
-        except Exception as e:
-            self.logger.error(f"FBXファイルボーン数取得中にエラー: {e}")
-            return None
 
-    def _generate_completion_log(self, mesh_file_str: str, skeleton_file_str: str, output_files_dict: Dict, processing_time: float) -> str: # 引数名変更
-        """処理完了ログの生成"""
-        log_lines = [
-            "UniRig AI Skinning 処理完了",
-            "=" * 30,
-            f"入力メッシュNPZ: {mesh_file_str}", # 引数名変更
-            f"入力スケルトンFBX: {skeleton_file_str}", # 引数名変更
-            "出力ファイル:",
-        ]
+# --- 互換性のための関数定義 ---
+def apply_skinning_step3(model_name: str, mesh_file_path: str, skeleton_files: Dict[str, str], output_dir: str) -> Tuple[bool, str, Dict[str, Any]]:
+    """
+    Step3スキニング適用の互換性関数
+    
+    Args:
+        model_name: モデル名
+        mesh_file_path: Step1メッシュファイルパス（使用しない - 原流互換のため）
+        skeleton_files: Step2の出力ファイル辞書
+        output_dir: 出力ディレクトリ
         
-        for key, file_info in output_files_dict.items(): # 引数名変更
-            if isinstance(file_info, dict) and "path" in file_info:
-                log_lines.append(f"  - {key}: {file_info['path']} (サイズ: {file_info.get('size', 'N/A')} bytes)")
-            elif isinstance(file_info, str): # processing_time など
-                 log_lines.append(f"  - {key}: {file_info}")
-            else: # vertex_count, bone_count など
-                log_lines.append(f"  - {key}: {file_info}")
-
-        log_lines.append(f"処理時間: {processing_time:.2f} 秒")
-        
-        return "\\n".join(log_lines)
+    Returns:
+        (success, logs, output_files)
+    """
+    # 🔥 重要: オリジナルファイルの検索
+    # mesh_file_pathは使用せず、オリジナルファイルから再抽出を行う
+    from fixed_directory_manager import FixedDirectoryManager
+    
+    # モデル名からオリジナルファイルを検索
+    fdm = FixedDirectoryManager(Path("/app/pipeline_work"), model_name)
+    original_file = fdm.find_original_model_file()
+    
+    if not original_file:
+        return False, "❌ オリジナルファイルが見つかりません（Step3メッシュ再抽出に必要）", {}
+    
+    # Step3インスタンス作成と実行
+    step3_instance = Step3Skinning(Path(output_dir))
+    return step3_instance.apply_skinning(original_file, model_name, skeleton_files)

@@ -1,8 +1,0 @@
-{
-  "model_name": "test_pipeline_bird",
-  "original_file": "/app/examples/bird.glb",
-  "preserved_at": 1749382244.2086627,
-  "texture_directory": "/app/pipeline_work_fixed/01_extract/textures",
-  "materials": [],
-  "textures": []
-}

@@ -1,15 +1,14 @@
 # 技術的知見と教訓 - UniRigプロジェクトからの学習事項
 
 **作成日**: 2025年1月17日  
-**最終更新**: 2025年6月9日  
-**元文書**: UniRig_MASTER_CHANGELOG.md  
+**最終更新**: 2025年6月12日  
 **目的**: プロジェクトからの技術的知見の抽出と将来プロジェクトへの適用
 
 ---
 
 ## 📋 概要
 
-このドキュメントは、UniRig 3D Model Rigging Applicationプロジェクトから抽出された技術的知見、開発教訓、および将来のプロジェクトに適用可能なベストプラクティスをまとめたものです。**プロジェクトは2025年6月9日に復活し、大幅な技術的進展を達成しました**。
+このドキュメントは、UniRig 3D Model Rigging Applicationプロジェクトから抽出された技術的知見、開発教訓、およびベストプラクティスをまとめたものです。**プロジェクトは2025年6月9日に復活し、現在の6ステップマイクロサービス構成へと至る大幅な技術的進展を達成しました**。
 
 ---
 
@@ -19,25 +18,27 @@
 **UniRig**: 3Dモデル自動リギングアプリケーション
 - **コアミッション**: "One Model to Rig Them All" - 3Dアニメーション制作の民主化
 - **目標**: 静的3Dモデルをアニメーション対応リグ付きアセットに自動変換
-- **ユーザー価値**: 専門的なリギング知識なしでプロ品質のアニメーション準備
 
 ### 🚀 プロジェクト復活と技術的ブレークスルー (2025年6月9日)
 
+<!-- 修正点: 古い4ステップ構成から現在の6ステップ構成に基づく記述に修正 -->
 **重大な成果:**
 ```
-完全パイプライン動作確認済み:
-├── ✅ Step1: メッシュ抽出 (6.27秒)
-├── ✅ Step2: スケルトン生成 (15.35秒) 
-├── ✅ Step3: スキニング適用 (5.46秒)
-├── ✅ Step4: テクスチャ統合 (6.71秒)
-└── 🎯 総処理時間: 33.79秒、最終FBX: 4.2MB
+完全パイプライン動作確認済み (6ステップ構成):
+├── ✅ Step0: アセット保存
+├── ✅ Step1: メッシュ抽出
+├── ✅ Step2: スケルトン生成
+├── ✅ Step3: スキニング適用
+├── ✅ Step4: スケルトン・スキンウェイトマージ
+├── ✅ Step5: Blender統合・最終出力
+└── 🎯 最終FBX: 高品質テクスチャを保持した適切なファイルサイズで出力
 ```
 
 **技術的ブレークスルー:**
-- **データフロー改修方針完全実装**: `UNIRIG_PIPELINE_DATAFLOW.md`準拠の統一システム
-- **Step4Merge 5段階処理フロー**: 革新的なクロスプラットフォーム対応システム
-- **バイナリFBX生成システム**: Step3でのASCII FBX互換性問題根本解決
-- **クロスプラットフォーム対応**: Windows/Linux環境でのmerge.sh問題完全解決
+- **統一データフローの確立**: `app_dataflow.instructions.md`準拠のシステムを構築。
+- **責務の明確な分離**: Step4（マージ特化）とStep5（Blender統合）の分離に成功。
+- **バイナリFBX生成の標準化**: Step3でのASCII FBX互換性問題を根本解決。
+- **クロスプラットフォーム対応**: Windows/Linux環境での実行互換性を確保。
 
 ### 🛑 過去の中止要因（学習のための記録）
 ```
@@ -123,6 +124,9 @@ Step 3: 軽量numpy処理 → Blender-subprocess → バイナリFBX生成 → S
 
 ## 🚀 2025年6月9日技術的ブレークスルー - 核心技術の実現
 
+<!-- 修正点: このセクション全体を、現在の6ステップ構成に至った経緯として文脈を明確化 -->
+**⭐ Note: 以下の技術的分析は、現在の6ステップマイクロサービス構成、特にStep4とStep5の機能分離を決定づけた重要な発見事項です。**
+
 ### 1. Step3バイナリFBX生成システム - 根本解決
 
 #### 🚨 解決した重要問題
@@ -176,10 +180,12 @@ bpy.ops.wm.quit_blender()
 
 ---
 
-### 2. Step4Merge 5段階処理フロー - クロスプラットフォーム革命
+### 2. Step4/Step5の機能分離に至った分析
+<!-- 修正点: Step4Mergeの分析が、後のStep5の設計に繋がったことを明記 -->
+#### 🏗️ 旧Step4（テクスチャ統合）のアーキテクチャ分析
+**⭐ Note: この分析は、旧Step4が「マージ」と「テクスチャ統合」という2つの異なる責務を持っており、複雑性の原因となっていたことを明らかにしました。この結果、現在のStep4(マージ特化)とStep5(Blender統合)への分離が行われました。**
 
-#### 🏗️ 革新的アーキテクチャ
-**段階1: データ抽出 (二重アプローチ)**
+**段階1: データ抽出**
 ```python
 def _execute_blender_extraction(self, source_path: str, output_dir: Path):
     """Blender経由でのデータ抽出（プライマリ手法）"""
@@ -226,7 +232,14 @@ except Exception as e:
 ### 3. データフロー改修方針の完全実装
 
 #### 🎯 統一データフロー設計
-**中央集権型パス管理:**
+<!-- 修正点: 仕様の再定義を削除し、app_dataflow.instructions.mdへの参照に一本化 -->
+#### 🎯 統一データフロー設計
+**⭐ 重要: データフロー、ディレクトリ構造、ファイル命名規則に関する唯一の信頼できる情報源（Single Source of Truth）は `app_dataflow.instructions.md` です。**
+以下の原則が、その仕様の基礎となっています。
+
+- **中央集権型パス管理**: `FileManager`による統一的なパス生成。
+- **ファイル命名規則の厳守**: 原流処理との互換性を確保するための固定名（例: `raw_data.npz`）の採用。
+- **絶対パスの使用**: モジュール内での相対パス計算を禁止し、`app.py`から渡される絶対パスを使用。
 ```
 /app/pipeline_work/{model_name}/
 ├── 00_asset_preservation/
@@ -428,7 +441,10 @@ except subprocess.TimeoutExpired:
 
 ---
 
-# 🔧 STEP4 TEXTURE INTEGRATION FLOW ANALYSIS (2025年1月3日)
+## 🔧 旧Step4テクスチャ統合フローの分析 (2025年1月3日)
+
+<!-- 修正点: このセクション全体が歴史的経緯であり、現在のStep5設計の基礎となったことを明記 -->
+**⭐ Note: このセクションは、旧Step4のテクスチャ統合処理に関する詳細な分析です。ここで得られた知見（例: 単一Blenderセッションの重要性）は、現在のStep5（Blender統合・最終出力）モジュールの設計に直接活かされています。**
 
 ## 📋 大元フローの分析結果
 
@@ -480,10 +496,8 @@ python -m src.inference.merge \
 - 複数回のimport/export操作
 - メモリリーク・安定性問題の原因
 
-## 🎯 最適化されたStep4フロー設計
-
-### 🚀 推奨アプローチ: Single-Session Integration
-
+### 🎯 最適化されたフロー設計（現Step5の原型）
+<!-- 修正点: 出力ファイル名を現在の仕様に合わせる -->
 **大元フローに基づく簡素化設計:**
 
 ```python
@@ -624,6 +638,9 @@ if actual_size_mb < expected_size_mb * 0.8:
 ---
 
 ## 🔄 Step1-Step4データフロー統合の知見 (2025年1月3日更新)
+<!-- 修正点: このセクションが現在の厳格な命名規則の基礎となった教訓であることを明記 -->
+
+⭐ Note: 以下の分析は、パイプラインが頻繁に失敗した根本原因を特定した際の記録です。ここで得られた「ファイル命名の不整合」や「FBX形式の問題」といった教訓が、現在のapp_dataflow.instructions.mdで定義されている厳格なルールセットの策定に繋がりました。
 
 ### 🎯 データフロー不整合の根本原因
 
@@ -644,6 +661,7 @@ if actual_size_mb < expected_size_mb * 0.8:
    - 既存のFBXファイルをコピーしているだけ
 
 ### 🛠️ 実装された解決策
+<!-- 修正点: ファイル命名規則の辞書を現在の仕様に合わせて修正 -->
 
 #### ✅ Step2ファイル名規則修正
 ```python
@@ -651,9 +669,9 @@ if actual_size_mb < expected_size_mb * 0.8:
 output_fbx = self.output_dir / f"{model_name}_skeleton.fbx"
 output_npz = self.output_dir / f"{model_name}_skeleton.npz"
 
-# 修正後（大元フロー互換）
-output_fbx = self.output_dir / f"{model_name}.fbx"  # サフィックス除去
-output_npz = self.output_dir / f"predict_skeleton.npz"  # 固定名
+# 修正後（現在の仕様）
+output_fbx = self.output_dir / f"{model_name}.fbx"
+output_npz = self.output_dir / "predict_skeleton.npz"
 ```
 
 #### ✅ Step3バイナリFBX生成実装
@@ -759,12 +777,12 @@ def _execute_native_merge_flow(self, source: str, target: str, model_name: str):
 
 #### **厳格なファイル命名規則遵守**
 ```python
-# 原生フロー完全互換性の鍵
+# 現在のapp_dataflow.instructions.mdで定義されている命名規則の原型
 REQUIRED_FILE_NAMING = {
-    "step2_output_fbx": "{model_name}.fbx",  # サフィックス除去
-    "step2_output_npz": "predict_skeleton.npz",  # 固定名
-    "step3_search_priority": ["predict_skeleton.npz", "{model_name}_skeleton.npz"],
-    "step4_final_output": "{model_name}_textured.fbx"
+    "step1_output_npz": "raw_data.npz",
+    "step2_skeleton_npz": "predict_skeleton.npz",
+    "step2_skeleton_fbx": "{model_name}.fbx",
+    # ...など
 }
 ```
 

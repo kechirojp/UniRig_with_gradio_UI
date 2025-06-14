@@ -16,10 +16,9 @@ writer:
   output_dir: ~ # export results into the same input folder
   add_num: False
   repeat: 1
-  export_npz: predict_skeleton
-  export_obj: skeleton
-  export_fbx: skeleton
-  # export_pc: pc
+  export_npz: predict_skeleton # 固定名: 原流処理互換
+  export_obj: skeleton # 統一: OBJファイル名
+  export_fbx: skeleton # 固定名: 原流処理互換 (skeleton.fbx → {model_name}.fbxにリネーム)
 
 trainer:
   max_epochs: 1

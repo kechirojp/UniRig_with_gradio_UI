@@ -4,34 +4,47 @@
 # --- Core Pipeline Settings ---
 working_directory_base: "./pipeline_work"
 
-# --- Stage 1: Mesh Extraction (WORKING) ---
+# --- Stage 1: Mesh Extraction (データフロー仕様書互換) ---
 mesh_extraction:
   extract_output_subdir: "01_extracted_mesh"
-  output_npz_filename: "{model_name}_raw_data.npz"
+  output_npz_filename: "raw_data.npz"  # 原流処理互換（データフロー仕様書準拠）
   num_runs: 1 
   faces_target_count: 1500000
 
-# --- Stage 2: Skeleton Generation (WORKING) ---
+# --- Stage 0: Asset Preservation (データフロー仕様書対応) ---
+asset_preservation:
+  asset_output_subdir: "00_asset_preservation"
+  output_metadata_filename: "{model_name}_asset_metadata.json"
+  output_blender_metadata_filename: "{model_name}_asset_metadata_blender.json"
+  output_textures_dirname: "textures"
+
+# --- Stage 2: Skeleton Generation (データフロー仕様書互換) ---
 skeleton_generation:
-  skeleton_output_subdir: "02_skeleton_output"
+  skeleton_output_subdir: "02_skeleton"
   task_config_template: "configs/task/quick_inference_skeleton_articulationxl_ar_256.yaml"
   seed: 42
   output_npz_filename: "predict_skeleton.npz"
-  output_fbx_filename: "skeleton.fbx"
+  output_fbx_filename: "{model_name}.fbx"  # サフィックスなし（データフロー仕様書準拠）
   output_txt_filename: "skeleton_pred.txt"
 
-# --- Stage 3: Skinning Generation (WORKING) ---
+# --- Stage 3: Skinning Generation (データフロー仕様書互換) ---
 skinning_prediction:
-  skin_output_subdir: "03_skinning_output"
+  skin_output_subdir: "03_skinning"
   task_config_template: "configs/task/quick_inference_unirig_skin.yaml"
   seed: 42
-  output_skinned_fbx_filename: "skinned_model.fbx"
-  output_skinning_npz_filename: "predict_skin.npz"
+  output_skinned_fbx_filename: "{model_name}_skinned_unirig.fbx"  # データフロー仕様書準拠
+  output_skinning_npz_filename: "{model_name}_skinning.npz"      # データフロー仕様書準拠
 
-# --- Stage 4: Simple Merging (TO BE IMPLEMENTED) ---
+# --- Stage 4: Skeleton & Skinning Merge (データフロー仕様書対応) ---
 model_merging:
-  merge_output_subdir: "04_final_rigged_model"
-  output_merged_fbx_filename: "final_rigged_model.fbx"
+  merge_output_subdir: "04_merge"
+  output_merged_fbx_filename: "{model_name}_merged.fbx"  # データフロー仕様書準拠
+
+# --- Stage 5: Blender Integration (データフロー仕様書対応) ---
+blender_integration:
+  blender_output_subdir: "05_blender_integration" 
+  output_final_fbx_filename: "{model_name}_final.fbx"  # データフロー仕様書準拠
+  output_final_fbm_dirname: "{model_name}_final.fbm"   # テクスチャディレクトリ
 
 # --- Web Interface ---
 gradio_interface:

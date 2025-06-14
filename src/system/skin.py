@@ -110,7 +110,7 @@ class SkinWriter(BasePredictionWriter):
         self.render_config      = render_config
         self.verbose            = verbose
         
-        self.exporter = Exporter(blender_path=self.blender_path, render_config=self.render_config)
+        self.exporter = Exporter()
 
         if order_config is not None:
             self.order = get_order(config=order_config)
