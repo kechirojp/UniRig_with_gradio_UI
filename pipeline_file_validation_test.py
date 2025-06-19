@@ -50,7 +50,7 @@ def test_file_generation_patterns():
             expected_files = fdm.get_expected_files(step)
             step_dir = fdm.get_step_dir(step)
             
-            logger.info(f"📁 {step} 期待ファイル:")
+            logger.info(f"[FILE] {step} 期待ファイル:")
             for key, path in expected_files.items():
                 exists = path.exists() if hasattr(path, 'exists') else False
                 logger.info(f"  {key}: {path} (存在: {exists})")
@@ -62,7 +62,7 @@ def test_file_generation_patterns():
             }
             
         except Exception as e:
-            logger.error(f"❌ {step} エラー: {e}")
+            logger.error(f"[FAIL] {step} エラー: {e}")
             results[step] = {"error": str(e)}
     
     return results
@@ -102,7 +102,7 @@ def test_file_pattern_flexibility():
 def test_step_input_validation():
     """ステップ入力検証機能のテスト"""
     logger = setup_test_logger()
-    logger.info("✅ ステップ入力検証テスト開始")
+    logger.info("[OK] ステップ入力検証テスト開始")
     
     test_model = "test_bird"
     pipeline_base = Path("/app/pipeline_work")
@@ -128,11 +128,11 @@ def test_step_input_validation():
                     logger.info(f"  利用可能ファイル: {len(available_files)}個")
             else:
                 validation_results[step] = {"error": "validate_step_inputsメソッドが存在しません"}
-                logger.error(f"❌ {step}: validate_step_inputsメソッドが見つかりません")
+                logger.error(f"[FAIL] {step}: validate_step_inputsメソッドが見つかりません")
                 
         except Exception as e:
             validation_results[step] = {"error": str(e)}
-            logger.error(f"❌ {step} 検証エラー: {e}")
+            logger.error(f"[FAIL] {step} 検証エラー: {e}")
     
     return validation_results
 
@@ -169,12 +169,12 @@ def test_file_count_verification():
                 "files": list(expected_files.keys())
             }
             
-            status = "✅" if expected_count == actual_count else "⚠️"
+            status = "[OK]" if expected_count == actual_count else "⚠️"
             logger.info(f"{status} {step}: 期待{expected_count}個 vs 実際{actual_count}個")
             
         except Exception as e:
             count_results[step] = {"error": str(e)}
-            logger.error(f"❌ {step} カウントエラー: {e}")
+            logger.error(f"[FAIL] {step} カウントエラー: {e}")
     
     return count_results
 
@@ -203,7 +203,7 @@ def test_flexible_file_search():
     
     # NPZファイル検索テスト
     npz_files = list(test_dir.glob("*.npz"))
-    logger.info(f"📁 {test_dir} 内のNPZファイル:")
+    logger.info(f"[FILE] {test_dir} 内のNPZファイル:")
     for npz_file in npz_files:
         logger.info(f"  - {npz_file.name}")
     
@@ -238,7 +238,7 @@ def analyze_app_py_file_handling():
     app_py_path = Path("/app/app.py")
     
     if not app_py_path.exists():
-        logger.error("❌ app.pyが見つかりません")
+        logger.error("[FAIL] app.pyが見つかりません")
         return {"error": "app.py not found"}
     
     # app.pyからファイル処理関連のコードを抽出
@@ -286,7 +286,7 @@ def analyze_app_py_file_handling():
                         "line": i + 1,
                         "definition": line.strip()
                     }
-                    logger.info(f"✅ {func}: 行{i+1}で定義")
+                    logger.info(f"[OK] {func}: 行{i+1}で定義")
                     break
         else:
             function_analysis[func] = {"found": False}
@@ -335,7 +335,7 @@ def main():
     print("📊 総括レポート")
     print("="*80)
     
-    logger.info("✅ 全テスト完了")
+    logger.info("[OK] 全テスト完了")
     
     # 重要な発見事項をまとめる
     print("\n🔍 重要な発見事項:")
@@ -344,7 +344,7 @@ def main():
     print("\n📊 ファイル数整合性:")
     for step, result in count_verification.items():
         if "error" not in result:
-            status = "✅" if result["match"] else "⚠️"
+            status = "[OK]" if result["match"] else "⚠️"
             print(f"  {status} {step}: {result['actual_count']}個のファイル")
     
     # app.pyでの重要パターン使用状況
@@ -352,7 +352,7 @@ def main():
     if "pattern_analysis" in app_analysis:
         for pattern, count in app_analysis["pattern_analysis"].items():
             if count > 0:
-                print(f"  ✅ {pattern}: {count}回使用")
+                print(f"  [OK] {pattern}: {count}回使用")
     
     # 推奨事項
     print("\n💡 推奨事項:")

@@ -71,7 +71,7 @@ class Step2Skeleton:
             self.logger.info(f"🎯 統一スケルトン生成開始: モデル '{model_name}', 性別 '{gender}'")
             
             if not input_npz_path.exists():
-                error_msg = f"❌ 入力メッシュNPZファイルが見つかりません: {input_npz_path}"
+                error_msg = f"[FAIL] 入力メッシュNPZファイルが見つかりません: {input_npz_path}"
                 self.logger.error(error_msg)
                 return False, error_msg, {}
 
@@ -93,7 +93,7 @@ class Step2Skeleton:
             logs += script_logs
             
             if not success_script:
-                error_msg = f"❌ UniRigスケルトン生成スクリプト実行失敗。"
+                error_msg = f"[FAIL] UniRigスケルトン生成スクリプト実行失敗。"
                 self.logger.error(error_msg + " 詳細はログ参照。")
                 return False, logs, {}
             
@@ -102,12 +102,12 @@ class Step2Skeleton:
             generated_npz_in_unirig_dir = unirig_model_processing_dir / "predict_skeleton.npz"
             
             if not generated_npz_in_unirig_dir.exists():
-                error_msg = f"❌ UniRigが期待されるNPZファイル '{generated_npz_in_unirig_dir}' を生成しませんでした。"
+                error_msg = f"[FAIL] UniRigが期待されるNPZファイル '{generated_npz_in_unirig_dir}' を生成しませんでした。"
                 self.logger.error(error_msg)
                 self._debug_list_directory_contents(unirig_model_processing_dir) # デバッグ情報
                 return False, logs + error_msg + "\\n", {}
             
-            logs += f"✅ UniRigがNPZファイルを生成: '{generated_npz_in_unirig_dir}'\\n"
+            logs += f"[OK] UniRigがNPZファイルを生成: '{generated_npz_in_unirig_dir}'\\n"
 
             # 生成された predict_skeleton.npz をこのステップの出力ディレクトリにコピー
             final_output_npz = self.output_dir / "predict_skeleton.npz" # 固定名
@@ -137,7 +137,7 @@ class Step2Skeleton:
             # 原流処理出力を統一命名規則にコピー/移動
             if final_output_npz.exists():
                 shutil.copy2(final_output_npz, unified_skeleton_npz)
-                logs += f"📁 統一NPZ作成: {unified_skeleton_npz}\n"
+                logs += f"[FILE] 統一NPZ作成: {unified_skeleton_npz}\n"
             
             # FBXファイルの統一処理 (もし生成されている場合)
             skeleton_fbx_candidates = [
@@ -149,7 +149,7 @@ class Step2Skeleton:
             for candidate in skeleton_fbx_candidates:
                 if candidate.exists():
                     shutil.copy2(candidate, unified_skeleton_fbx)
-                    logs += f"📁 統一FBX作成: {unified_skeleton_fbx}\n"
+                    logs += f"[FILE] 統一FBX作成: {unified_skeleton_fbx}\n"
                     break
             
             output_files: Dict[str, Any] = {
@@ -180,7 +180,7 @@ class Step2Skeleton:
             return True, logs, output_files
             
         except Exception as e:
-            error_msg = f"❌ Step 2 スケルトン生成中に予期せぬエラー: {type(e).__name__} - {e}"
+            error_msg = f"[FAIL] Step 2 スケルトン生成中に予期せぬエラー: {type(e).__name__} - {e}"
             self.logger.error(error_msg, exc_info=True)
             return False, logs + error_msg + "\\n", {}
     
@@ -237,7 +237,7 @@ class Step2Skeleton:
             logs += f"⏱️ UniRigスクリプト実行時間: {process_execution_time:.2f}秒\\n"
             
             if result.returncode == 0:
-                success_msg = f"✅ UniRigスケルトン生成スクリプト正常終了 (コード: {result.returncode})\\n"
+                success_msg = f"[OK] UniRigスケルトン生成スクリプト正常終了 (コード: {result.returncode})\\n"
                 if result.stdout:
                     success_msg += f"STDOUT:\\n{result.stdout}\\n"
                 if result.stderr: # 時々stderrにも情報が出ることがある
@@ -246,7 +246,7 @@ class Step2Skeleton:
                 logs += success_msg
                 return True, logs
             else:
-                error_msg = f"❌ UniRigスケルトン生成スクリプトエラー (コード: {result.returncode})\\n"
+                error_msg = f"[FAIL] UniRigスケルトン生成スクリプトエラー (コード: {result.returncode})\\n"
                 if result.stdout:
                     error_msg += f"STDOUT:\\n{result.stdout}\\n"
                 if result.stderr:
@@ -256,11 +256,11 @@ class Step2Skeleton:
                 return False, logs
                 
         except subprocess.TimeoutExpired:
-            timeout_msg = "❌ UniRigスケルトン生成スクリプトがタイムアウトしました (10分)"
+            timeout_msg = "[FAIL] UniRigスケルトン生成スクリプトがタイムアウトしました (10分)"
             self.logger.error(timeout_msg)
             return False, logs + timeout_msg + "\\n"
         except Exception as e:
-            exec_error_msg = f"❌ UniRigスケルトン生成スクリプト実行中に予期せぬエラー: {type(e).__name__} - {e}"
+            exec_error_msg = f"[FAIL] UniRigスケルトン生成スクリプト実行中に予期せぬエラー: {type(e).__name__} - {e}"
             self.logger.error(exec_error_msg, exc_info=True)
             return False, logs + exec_error_msg + "\\n"
     

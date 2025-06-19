@@ -3,7 +3,7 @@ from numpy import ndarray
 
 from typing import Dict, Tuple, Union, List
 
-from .spec import TokenizerSpec, TokenizeInput, DetokenzeOutput, TokenizerConfig
+from .spec import TokenizerSpec, TokenizeInput, DetokenizeOutput, TokenizerConfig
 from .spec import make_skeleton
 from ..data.order import get_order
 
@@ -101,7 +101,7 @@ class TokenizerPart(TokenizerSpec):
         return np.array(tokens, dtype=np.int64)
             
 
-    def detokenize(self, ids: ndarray, **kwargs) -> DetokenzeOutput:
+    def detokenize(self, ids: ndarray, **kwargs) -> DetokenizeOutput:
         assert isinstance(ids, ndarray), 'expect ids to be ndarray'
         if ids[0] != self.token_id_bos:
             raise ValueError(f"first token is not bos")
@@ -179,7 +179,7 @@ class TokenizerPart(TokenizerSpec):
             names = self.order.make_names(cls=cls, parts=parts, num_bones=num_bones)
         else:
             names = [f"bone_{i}" for i in range(num_bones)]
-        return DetokenzeOutput(
+        return DetokenizeOutput(
             tokens=ids,
             parents=parents,
             bones=bones,

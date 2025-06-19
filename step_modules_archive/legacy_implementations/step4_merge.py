@@ -91,12 +91,12 @@ class Step4CrossPlatformMerge:
             # 入力ファイルの検証
             required_files = self._validate_input_files(step1_files, step2_files, step3_files)
             if not required_files['valid']:
-                error_msg = f"❌ 入力ファイル検証失敗: {required_files['error']}"
+                error_msg = f"[FAIL] 入力ファイル検証失敗: {required_files['error']}"
                 self.logger.error(error_msg)
                 return False, error_msg, {}
             
-            logs += f"✅ 入力ファイル検証完了\n"
-            logs += f"📁 Step1メッシュ: {Path(required_files['mesh_npz']).name}\n"
+            logs += f"[OK] 入力ファイル検証完了\n"
+            logs += f"[FILE] Step1メッシュ: {Path(required_files['mesh_npz']).name}\n"
             logs += f"🦴 Step2スケルトン: {Path(required_files['skeleton_npz']).name}\n"
             logs += f"🎭 Step3スキニング: {Path(required_files['skinned_fbx']).name}\n"
             
@@ -114,7 +114,7 @@ class Step4CrossPlatformMerge:
             
             if success and output_fbx_path.exists():
                 file_size = output_fbx_path.stat().st_size
-                logs += f"✅ マージ完了: {output_fbx_path.name} ({file_size:,} bytes)\n"
+                logs += f"[OK] マージ完了: {output_fbx_path.name} ({file_size:,} bytes)\n"
                 
                 output_files = {
                     "merged_fbx": str(output_fbx_path),
@@ -123,12 +123,12 @@ class Step4CrossPlatformMerge:
                 
                 return True, logs, output_files
             else:
-                error_msg = f"❌ マージ処理失敗: 出力ファイルが生成されませんでした"
+                error_msg = f"[FAIL] マージ処理失敗: 出力ファイルが生成されませんでした"
                 logs += error_msg
                 return False, logs, {}
                 
         except Exception as e:
-            error_msg = f"❌ Step 4 エラー: {str(e)}\n{traceback.format_exc()}"
+            error_msg = f"[FAIL] Step 4 エラー: {str(e)}\n{traceback.format_exc()}"
             self.logger.error(error_msg)
             return False, error_msg, {}
     
@@ -210,7 +210,7 @@ class Step4CrossPlatformMerge:
             return True, logs
         
         # 全メソッド失敗
-        logs += f"\n❌ 全マージメソッド失敗\n"
+        logs += f"\n[FAIL] 全マージメソッド失敗\n"
         return False, logs
     
     def _execute_merge_direct_python(self, source: str, target: str, output: str) -> Tuple[bool, str]:
@@ -227,10 +227,10 @@ class Step4CrossPlatformMerge:
             model_name = Path(output).stem.replace('_merged', '')
             
             logs += f"🚀 統合マージシステム実行開始\n"
-            logs += f"📁 Source (skeleton): {Path(source).name}\n"
-            logs += f"📁 Target (skinned): {Path(target).name}\n"
-            logs += f"📁 Output: {Path(output).name}\n"
-            logs += f"🏷️ Model name: {model_name}\n"
+            logs += f"[FILE] Source (skeleton): {Path(source).name}\n"
+            logs += f"[FILE] Target (skinned): {Path(target).name}\n"
+            logs += f"[FILE] Output: {Path(output).name}\n"
+            logs += f"[TAG] Model name: {model_name}\n"
             
             start_time = time.time()
             success, merge_logs, output_files = orchestrator.execute_merge(
@@ -245,15 +245,15 @@ class Step4CrossPlatformMerge:
             logs += f"📋 統合システムログ:\n{merge_logs}\n"
             
             if success:
-                logs += f"✅ 統合マージ成功\n"
-                logs += f"📁 出力ファイル: {output_files}\n"
+                logs += f"[OK] 統合マージ成功\n"
+                logs += f"[FILE] 出力ファイル: {output_files}\n"
                 return True, logs
             else:
-                logs += f"❌ 統合マージ失敗\n"
+                logs += f"[FAIL] 統合マージ失敗\n"
                 return False, logs
                 
         except Exception as e:
-            logs += f"❌ 統合マージ例外エラー: {str(e)}\n"
+            logs += f"[FAIL] 統合マージ例外エラー: {str(e)}\n"
             logs += f"📋 トレースバック:\n{traceback.format_exc()}\n"
             return False, logs
     
@@ -275,8 +275,8 @@ class Step4CrossPlatformMerge:
             spec.loader.exec_module(merge_module)
             
             logs += f"📥 transfer関数直接呼び出し\n"
-            logs += f"📂 source: {Path(source).name}\n"
-            logs += f"📂 target: {Path(target).name}\n"
+            logs += f"[DIR] source: {Path(source).name}\n"
+            logs += f"[DIR] target: {Path(target).name}\n"
             
             start_time = time.time()
             
@@ -288,14 +288,14 @@ class Step4CrossPlatformMerge:
             
             if Path(output).exists():
                 file_size = Path(output).stat().st_size / (1024 * 1024)  # MB
-                logs += f"✅ 関数直接呼び出し成功: {file_size:.2f}MB\n"
+                logs += f"[OK] 関数直接呼び出し成功: {file_size:.2f}MB\n"
                 return True, logs
             else:
-                logs += f"❌ 出力ファイル未生成: {output}\n"
+                logs += f"[FAIL] 出力ファイル未生成: {output}\n"
                 return False, logs
                 
         except Exception as e:
-            logs += f"❌ 関数直接呼び出し失敗: {str(e)}\n"
+            logs += f"[FAIL] 関数直接呼び出し失敗: {str(e)}\n"
             return False, logs
     
     def _execute_merge_blender_subprocess(self, source: str, target: str, output: str) -> Tuple[bool, str]:
@@ -343,19 +343,19 @@ except Exception as e:
             if result.returncode == 0 and "SUCCESS" in result.stdout:
                 if Path(output).exists():
                     file_size = Path(output).stat().st_size / (1024 * 1024)  # MB
-                    logs += f"✅ Blenderサブプロセス成功: {file_size:.2f}MB\n"
+                    logs += f"[OK] Blenderサブプロセス成功: {file_size:.2f}MB\n"
                     return True, logs
                 else:
                     logs += f"⚠️ 実行成功だが出力ファイルなし\n"
                     return False, logs
             else:
-                logs += f"❌ Blenderサブプロセス失敗\n"
+                logs += f"[FAIL] Blenderサブプロセス失敗\n"
                 if result.stderr:
                     logs += f"STDERR: {result.stderr}\n"
                 return False, logs
                 
         except Exception as e:
-            logs += f"❌ Blenderサブプロセス例外: {str(e)}\n"
+            logs += f"[FAIL] Blenderサブプロセス例外: {str(e)}\n"
             return False, logs
 
 

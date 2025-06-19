@@ -100,9 +100,9 @@ if __name__ == "__main__":
     success = transfer_materials_and_uvmaps("bear_boy", "bear_boy.001")
     
     if success:
-        print("✅ マテリアルとUVマップの移植が正常に完了しました")
+        print("[OK] マテリアルとUVマップの移植が正常に完了しました")
     else:
-        print("❌ マテリアルとUVマップの移植に失敗しました")
+        print("[FAIL] マテリアルとUVマップの移植に失敗しました")
 
 # FBXエクスポート時に自動的にテクスチャを埋め込み
 bpy.ops.export_scene.fbx(

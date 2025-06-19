@@ -1,0 +1,196 @@
+---
+applyTo: '**'
+---
+
+# UniRig テスト・診断ガイドライン
+
+## 重要な注意事項
+
+### ❌ 使用禁止: ターミナル一行コマンド (`python -c`)
+
+このプロジェクトでは、**ターミナルでの `python -c` コマンドは使用しないでください**。
+以下の理由により、環境によって不安定で信頼性が低いためです：
+
+```bash
+# ❌ 使用禁止 - 不安定で失敗する可能性が高い
+python -c "import sys; sys.path.insert(0, '/app'); from step_modules.step3_skinning_unirig import Step3SkinningUniRig; print('OK')"
+```
+
+**問題点:**
+- パス設定が正しく反映されない場合がある
+- Unicode文字の処理で問題が発生する場合がある
+- 複雑なロジックでは構文エラーが発生しやすい
+- デバッグが困難
+- 環境依存の問題が起こりやすい
+
+### ✅ 推奨: 独立したPythonファイル
+
+すべてのテスト・診断コードは独立した `.py` ファイルとして作成し、実行してください：
+
+```bash
+# ✅ 推奨 - 安定して動作する
+cd /app
+python test_step3_basic_functionality.py
+```
+
+## テストファイルの命名規則
+
+テストファイルは以下の命名規則に従ってください：
+
+- **基本機能テスト**: `test_[モジュール名]_basic_functionality.py`
+- **統合テスト**: `test_[機能名]_integration.py`
+- **診断スクリプト**: `diagnostic_[問題名].py`
+- **修正検証**: `verify_[修正内容].py`
+
+## 提供されているテストスクリプト
+
+### 基本機能テスト
+
+| ファイル名 | 目的 | 実行方法 |
+|-----------|------|----------|
+| `test_step3_basic_functionality.py` | Step3の基本機能テスト | `python test_step3_basic_functionality.py` |
+| `test_step3_skinning_unirig.py` | Step3のスキニング機能テスト | `python test_step3_skinning_unirig.py` |
+| `test_fixed_directory_only.py` | ディレクトリ管理テスト | `python test_fixed_directory_only.py` |
+
+### アプリケーション起動
+
+| ファイル名 | 目的 | 実行方法 |
+|-----------|------|----------|
+| `quick_start_app.py` | WebUI（app.py）の安全な起動 | `python quick_start_app.py` |
+| `app.py` | メインWebUIアプリケーション | `python app.py` |
+
+### 診断・修復スクリプト
+
+| ファイル名 | 目的 | 実行方法 |
+|-----------|------|----------|
+| `fix_unicode_print_statements.py` | Unicode文字修正 | `python fix_unicode_print_statements.py` |
+| `test_cleanup_functionality.py` | クリーンアップ機能テスト | `python test_cleanup_functionality.py` |
+
+## テストスクリプトの作成ガイドライン
+
+### 1. ファイルヘッダーの記載
+
+すべてのテストファイルには以下の情報を含めてください：
+
+```python
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+"""
+[スクリプト名]
+
+このスクリプトは[目的]をテストします。
+ターミナルの `python -c` コマンドは環境によって不安定なため、
+必ず独立したPythonファイルとして実行してください。
+
+実行方法:
+    cd /app
+    python [ファイル名].py
+
+注意事項:
+- [具体的な注意事項]
+"""
+```
+
+### 2. パス設定の統一
+
+すべてのテストスクリプトで以下のパス設定を使用してください：
+
+```python
+import sys
+import os
+from pathlib import Path
+
+# プロジェクトルートを追加
+sys.path.insert(0, '/app')
+```
+
+### 3. エラーハンドリング
+
+テストスクリプトには適切なエラーハンドリングを含めてください：
+
+```python
+try:
+    # テストロジック
+    pass
+except ImportError as e:
+    print(f"[FAIL] インポートエラー: {e}")
+    return False
+except Exception as e:
+    print(f"[FAIL] 予期しないエラー: {e}")
+    import traceback
+    traceback.print_exc()
+    return False
+```
+
+### 4. 出力形式の統一
+
+テスト結果の出力は以下の形式を使用してください：
+
+```python
+print("[OK] 成功メッセージ")
+print("[FAIL] 失敗メッセージ")
+print("[WARN] 警告メッセージ")
+print("[INFO] 情報メッセージ")
+```
+
+## 既知の問題と対策
+
+### KeyError: 'unified_skinning_npz'
+
+**問題**: Step3でoutput_filesディクショナリのキーが存在しない
+
+**対策**: テストスクリプトでキーの存在を確認
+
+```python
+# 安全なアクセス方法
+value = output_files.get('unified_skinning_npz', '')
+if not value:
+    print("[WARN] unified_skinning_npzが設定されていません")
+```
+
+### Unicode文字によるprint文エラー
+
+**問題**: 絵文字などのUnicode文字でprint文が失敗
+
+**対策**: `fix_unicode_print_statements.py`で修正済み
+
+### ポート競合によるGradio起動失敗
+
+**問題**: WebUIの起動時にポート7860が使用中
+
+**対策**: `quick_start_app.py`で動的ポート選択を実装済み
+
+## トラブルシューティング
+
+### インポートエラーが発生する場合
+
+1. パス設定を確認してください：
+```python
+import sys
+print(sys.path)
+```
+
+2. 必要なモジュールが存在するか確認してください：
+```bash
+ls /app/step_modules/
+```
+
+### テストが失敗する場合
+
+1. まず基本機能テストから実行してください
+2. エラーメッセージを詳細に確認してください
+3. 必要に応じて診断スクリプトを実行してください
+
+## 今後のテスト追加指針
+
+新しいテストスクリプトを追加する際は：
+
+1. この命名規則とガイドラインに従ってください
+2. 独立したPythonファイルとして作成してください
+3. 適切なエラーハンドリングを含めてください
+4. ドキュメントを更新してください
+
+---
+
+**重要**: 一度でも `python -c` コマンドが失敗した場合は、必ず独立したPythonファイルを作成してテストしてください。これにより、デバッグが容易になり、再現性が確保されます。

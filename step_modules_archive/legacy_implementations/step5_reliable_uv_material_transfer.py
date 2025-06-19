@@ -90,9 +90,9 @@ class Step5ReliableUVMaterialTransfer:
             integrator = UnifiedBlenderIntegrator(enable_debug=True)
             
             self.logger.info(f"🚀 統合Blender統合システム実行開始")
-            self.logger.info(f"📁 Original: {Path(original_file).name}")
-            self.logger.info(f"📁 Merged: {Path(merged_file).name}")
-            self.logger.info(f"📁 Output: {output_fbx.name}")
+            self.logger.info(f"[FILE] Original: {Path(original_file).name}")
+            self.logger.info(f"[FILE] Merged: {Path(merged_file).name}")
+            self.logger.info(f"[FILE] Output: {output_fbx.name}")
             
             success, logs, output_files = integrator.execute_integration(
                 merged_fbx=merged_file,
@@ -103,7 +103,7 @@ class Step5ReliableUVMaterialTransfer:
             
             if success and output_fbx.exists():
                 file_size = output_fbx.stat().st_size
-                self.logger.info(f"✅ Step5完了: {output_fbx} ({file_size} bytes)")
+                self.logger.info(f"[OK] Step5完了: {output_fbx} ({file_size} bytes)")
                 
                 return True, f"統合Blender統合システム完了: {output_fbx.name} ({file_size} bytes)\n詳細ログ:\n{logs}", output_files
             else:
@@ -151,7 +151,7 @@ def load_and_rename_objects():
     clear_scene()
     
     # オリジナルファイル読み込み（UV・マテリアル・テクスチャ保持）
-    print("📁 オリジナルファイル読み込み中...")
+    print("[FILE] オリジナルファイル読み込み中...")
     original_file = "{original_file}"
     if original_file.lower().endswith('.glb') or original_file.lower().endswith('.gltf'):
         bpy.ops.import_scene.gltf(filepath=original_file)
@@ -163,21 +163,21 @@ def load_and_rename_objects():
         # VRMファイルインポート（VRMアドオン使用）
         try:
             bpy.ops.import_scene.vrm(filepath=original_file)
-            print("✅ VRM インポート成功")
+            print("[OK] VRM インポート成功")
         except AttributeError:
             # VRMアドオンが利用できない場合、GLTFとしてインポートを試行
             print("⚠️ VRMアドオン未検出、GLTFインポートを試行...")
             try:
                 bpy.ops.import_scene.gltf(filepath=original_file)
-                print("✅ VRM (GLTF fallback) インポート成功")
+                print("[OK] VRM (GLTF fallback) インポート成功")
             except Exception as gltf_error:
-                print("❌ VRM/GLTF インポート失敗: " + str(gltf_error))
+                print("[FAIL] VRM/GLTF インポート失敗: " + str(gltf_error))
                 return [], []
         except Exception as vrm_error:
-            print("❌ VRM インポート失敗: " + str(vrm_error))
+            print("[FAIL] VRM インポート失敗: " + str(vrm_error))
             return [], []
     else:
-        print("❌ 未対応ファイル形式: " + str(original_file))
+        print("[FAIL] 未対応ファイル形式: " + str(original_file))
         print("対応形式: .glb, .gltf, .fbx, .obj, .vrm")
         return [], []
     
@@ -223,7 +223,7 @@ def transfer_uv_materials(original_objects, merged_objects):
             break
     
     if not original_mesh or not merged_mesh:
-        print("❌ UV・マテリアル転送: メッシュオブジェクトが見つかりません")
+        print("[FAIL] UV・マテリアル転送: メッシュオブジェクトが見つかりません")
         return False
     
     print("🎨 UV・マテリアル転送: " + original_mesh.name + " → " + merged_mesh.name)
@@ -240,7 +240,7 @@ def transfer_uv_materials(original_objects, merged_objects):
             else:
                 merged_mesh.data.materials.append(None)
     else:
-        print("❌ オリジナルメッシュにマテリアルがありません")
+        print("[FAIL] オリジナルメッシュにマテリアルがありません")
     
     # UV転送（重要）
     if original_mesh.data.uv_layers:
@@ -262,7 +262,7 @@ def transfer_uv_materials(original_objects, merged_objects):
             else:
                 print("⚠️ UV転送スキップ: ループ数不一致 (" + str(len(original_mesh.data.loops)) + " vs " + str(len(merged_mesh.data.loops)) + ")")
     else:
-        print("❌ オリジナルメッシュにUVレイヤーがありません")
+        print("[FAIL] オリジナルメッシュにUVレイヤーがありません")
     
     return True
 
@@ -326,7 +326,7 @@ def export_final_fbx():
         colors_type='SRGB'
     )
     
-    print("✅ FBXエクスポート完了")
+    print("[OK] FBXエクスポート完了")
     return True
 
 def main():
@@ -344,14 +344,14 @@ def main():
         export_success = export_final_fbx()
         
         if transfer_success and export_success:
-            print("✅ Step5完了: UV・マテリアル転送成功")
+            print("[OK] Step5完了: UV・マテリアル転送成功")
         else:
-            print("❌ Step5失敗")
+            print("[FAIL] Step5失敗")
             
         return transfer_success and export_success
         
     except Exception as e:
-        print("❌ Step5エラー: " + str(e))
+        print("[FAIL] Step5エラー: " + str(e))
         import traceback
         traceback.print_exc()
         return False
@@ -381,9 +381,9 @@ if __name__ == "__main__":
             logs = result.stdout if success else result.stderr
             
             if success:
-                self.logger.info("✅ UV・マテリアル転送Blenderスクリプト実行成功")
+                self.logger.info("[OK] UV・マテリアル転送Blenderスクリプト実行成功")
             else:
-                self.logger.error(f"❌ UV・マテリアル転送Blenderスクリプト実行失敗: {logs}")
+                self.logger.error(f"[FAIL] UV・マテリアル転送Blenderスクリプト実行失敗: {logs}")
             
             return success, logs
             

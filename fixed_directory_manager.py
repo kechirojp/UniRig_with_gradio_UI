@@ -32,7 +32,8 @@ class UnifiedNamingConvention:
             'merged_fbx': '{model_name}_merged.fbx',
         },
         'step5': {
-            'rigged_fbx': '{model_name}_rigged.fbx',  # 最終成果物
+            'final_fbx': '{model_name}_final.fbx',     # 最終成果物（統一）
+            # 'final_output': '{model_name}_final{ext}', # 動的拡張子対応は別途処理
         }
     }
     
@@ -46,29 +47,52 @@ class UnifiedNamingConvention:
             'skeleton_npz': ['predict_skeleton.npz'],
         },
         'step3': {
-            'skinned_fbx': ['{model_name}_skinned_unirig.fbx', 'result_fbx.fbx', 'skinned_model.fbx'],
+            'skinned_fbx': ['{model_name}_skinned.fbx', '{model_name}_skinned_unirig.fbx', 'result_fbx.fbx', 'skinned_model.fbx'],
             'skinning_npz': ['predict_skin.npz', '{model_name}_skinning.npz'],
         },
         'step4': {
             'merged_fbx': ['{model_name}_textured.fbx', '{model_name}_merged.fbx'],
         },
         'step5': {
-            'rigged_fbx': ['{model_name}_final.fbx', '{model_name}_rigged.fbx'],
+            'rigged_fbx': ['{model_name}_final.fbx'],
+            'final_fbx': ['{model_name}_final.fbx'],
+            # 'final_output': ['{model_name}_final{ext}', '{model_name}_final.fbx', '{model_name}_rigged.fbx'],  # 動的拡張子対応は別途処理
         }
     }
     
-    def get_unified_file_name(self, model_name: str, step: str, file_type: str) -> str:
-        """統一命名規則に基づくファイル名生成"""
+    def get_unified_file_name(self, model_name: str, step: str, file_type: str, ext: str = None) -> str:
+        """統一命名規則に基づくファイル名生成（動的拡張子対応）"""
         pattern = self.NAMING_PATTERNS.get(step, {}).get(file_type)
         if pattern:
-            return pattern.format(model_name=model_name)
+            try:
+                if '{ext}' in pattern and ext:
+                    return pattern.format(model_name=model_name, ext=ext)
+                else:
+                    return pattern.format(model_name=model_name)
+            except KeyError:
+                # フォーマット失敗時はextなしで再試行
+                return pattern.format(model_name=model_name)
         else:
             raise ValueError(f"未定義の統一命名パターン: {step}/{file_type}")
     
-    def get_legacy_file_names(self, model_name: str, step: str, file_type: str) -> List[str]:
-        """レガシー命名パターンリスト取得"""
+    def get_legacy_file_names(self, model_name: str, step: str, file_type: str, ext: str = None) -> List[str]:
+        """レガシー命名パターンリスト取得（動的拡張子対応）"""
         patterns = self.LEGACY_PATTERNS.get(step, {}).get(file_type, [])
-        return [pattern.format(model_name=model_name) for pattern in patterns]
+        result = []
+        for pattern in patterns:
+            try:
+                if '{ext}' in pattern and ext:
+                    result.append(pattern.format(model_name=model_name, ext=ext))
+                else:
+                    result.append(pattern.format(model_name=model_name))
+            except KeyError:
+                # フォーマット失敗時はextなしで再試行
+                try:
+                    result.append(pattern.format(model_name=model_name))
+                except KeyError:
+                    # それでも失敗する場合はスキップ
+                    continue
+        return result
 
 class FixedDirectoryManager:
     """決め打ちディレクトリ管理クラス - 統一命名規則対応"""
@@ -126,31 +150,31 @@ class FixedDirectoryManager:
         """ディレクトリセットアップ（create_all_directoriesのエイリアス）"""
         return self.create_all_directories()
     
-    def get_unified_file_path(self, step: str, file_type: str) -> Path:
-        """統一命名規則に基づくファイルパス取得"""
+    def get_unified_file_path(self, step: str, file_type: str, ext: str = None) -> Path:
+        """統一命名規則に基づくファイルパス取得（動的拡張子対応）"""
         step_dir = self.get_step_dir(step)
-        unified_name = self.naming.get_unified_file_name(self.model_name, step, file_type)
+        unified_name = self.naming.get_unified_file_name(self.model_name, step, file_type, ext)
         return step_dir / unified_name
     
-    def find_file_with_fallback(self, step: str, file_type: str) -> Optional[Path]:
-        """統一命名規則ファイル + レガシーファイルのフォールバック検索"""
+    def find_file_with_fallback(self, step: str, file_type: str, ext: str = None) -> Optional[Path]:
+        """統一命名規則ファイル + レガシーファイルのフォールバック検索（動的拡張子対応）"""
         step_dir = self.get_step_dir(step)
         
         # 1. 統一命名規則ファイル検索
-        unified_path = self.get_unified_file_path(step, file_type)
+        unified_path = self.get_unified_file_path(step, file_type, ext)
         if unified_path.exists():
-            self.logger.info(f"✅ 統一ファイル発見: {unified_path}")
+            self.logger.info(f"[OK] 統一ファイル発見: {unified_path}")
             return unified_path
         
         # 2. レガシー命名規則ファイル検索（フォールバック）
-        legacy_names = self.naming.get_legacy_file_names(self.model_name, step, file_type)
+        legacy_names = self.naming.get_legacy_file_names(self.model_name, step, file_type, ext)
         for legacy_name in legacy_names:
             legacy_path = step_dir / legacy_name
             if legacy_path.exists():
                 self.logger.warning(f"⚠️ レガシーファイル使用: {legacy_path}")
                 return legacy_path
         
-        self.logger.error(f"❌ ファイル未発見: {step}/{file_type} in {step_dir}")
+        self.logger.error(f"[FAIL] ファイル未発見: {step}/{file_type} in {step_dir}")
         return None
     
     def ensure_unified_output(self, step: str, file_type: str, 
@@ -188,30 +212,26 @@ class FixedDirectoryManager:
         step4_fbx = self.find_file_with_fallback("step4", "merged_fbx")
         validation_results["step4_fbx"] = step4_fbx is not None
         
-        # Step5検証: 最終FBX確認
-        step5_fbx = self.find_file_with_fallback("step5", "rigged_fbx")
-        validation_results["step5_fbx"] = step5_fbx is not None
+        # Step5検証: 最終出力確認（動的形式対応）
+        step5_output = self.find_file_with_dynamic_extension("step5", "final_output")
+        validation_results["step5_fbx"] = step5_output is not None
         
         return validation_results
 
-    def get_pipeline_completion_status(self) -> Dict[str, str]:
+    def get_pipeline_completion_status(self) -> Dict[str, bool]:
         """パイプライン完了状況の詳細取得 (統一命名規則対応)"""
-        status = {}
         validation = self.validate_pipeline_integrity()
         
-        # 各ステップの状況判定
-        status["step0"] = "✅ 完了" if self.check_step_completion("step0") else "⏸️ 未実行"
-        status["step1"] = "✅ 完了" if validation["step1_mesh"] else "⏸️ 未実行"
-        status["step2"] = "✅ 完了" if validation["step2_fbx"] and validation["step2_npz"] else "⏸️ 未実行"
-        status["step3"] = "✅ 完了" if validation["step3_fbx"] else "⏸️ 未実行"
-        status["step4"] = "✅ 完了" if validation["step4_fbx"] else "⏸️ 未実行"
-        status["step5"] = "✅ 完了" if validation["step5_fbx"] else "⏸️ 未実行"
-        
-        # 全体進捗計算
-        completed_steps = sum(1 for s in status.values() if "✅" in s)
-        total_steps = len(status)
-        progress = f"{completed_steps}/{total_steps} ({(completed_steps/total_steps)*100:.1f}%)"
-        status["overall_progress"] = progress
+        # 各ステップの完了状況（ブール値で返す）
+        step0_completed, _, _ = self.check_step_completion("step0")  # タプルから最初の要素を取得
+        status = {
+            "step0": step0_completed,
+            "step1": validation["step1_mesh"],
+            "step2": validation["step2_fbx"] and validation["step2_npz"],
+            "step3": validation["step3_fbx"],
+            "step4": validation["step4_fbx"],
+            "step5": validation["step5_fbx"]
+        }
         
         return status
 
@@ -219,10 +239,10 @@ class FixedDirectoryManager:
         """ユーザー向けダウンロード可能ファイル一覧"""
         download_files = {}
         
-        # 最終成果物（最優先）
-        rigged_fbx = self.find_file_with_fallback("step5", "rigged_fbx")
-        if rigged_fbx:
-            download_files["final_rigged_model"] = rigged_fbx
+        # 最終成果物（最優先・動的形式対応）
+        final_output = self.find_file_with_dynamic_extension("step5", "final_output")
+        if final_output:
+            download_files["final_rigged_model"] = final_output
         
         # 中間成果物（必要に応じて）
         skeleton_fbx = self.find_file_with_fallback("step2", "skeleton_fbx")
@@ -357,13 +377,13 @@ class FixedDirectoryManager:
             }
         elif step == "step2":
             return {
-                "skeleton_fbx": step_dir / f"{self.model_name}.fbx",
+                "skeleton_fbx": step_dir / f"{self.model_name}_skeleton.fbx",
                 "skeleton_npz": step_dir / "predict_skeleton.npz",
                 "mesh_for_skeleton": step_dir / "mesh_for_skeleton" / "raw_data.npz"  # Step2専用メッシュ
             }
         elif step == "step3":
             return {
-                "skinned_fbx": step_dir / f"{self.model_name}_skinned_unirig.fbx",
+                "skinned_fbx": step_dir / f"{self.model_name}_skinned.fbx",
                 "skinning_npz": step_dir / "skinning_data.npz"
             }
         elif step == "step4":
@@ -371,8 +391,18 @@ class FixedDirectoryManager:
                 "merged_fbx": step_dir / f"{self.model_name}_merged.fbx"
             }
         elif step == "step5":
+            # 動的ファイル形式対応: オリジナルファイルの拡張子を検索
+            original_file = self.find_original_model_file()
+            if original_file:
+                original_ext = original_file.suffix.lower()
+                final_output = step_dir / f"{self.model_name}_final{original_ext}"
+            else:
+                # デフォルトはFBX
+                final_output = step_dir / f"{self.model_name}_final.fbx"
+            
             return {
-                "final_fbx": step_dir / f"{self.model_name}_final.fbx",
+                "final_output": final_output,               # 動的形式対応
+                "final_fbx": step_dir / f"{self.model_name}_final.fbx",  # 後方互換性維持
                 "textures_dir": step_dir / f"{self.model_name}_final.fbm"
             }
         else:
@@ -388,8 +418,8 @@ class FixedDirectoryManager:
         Returns:
             Optional[Path]: 見つかったオリジナルファイルのパス、または None
         """
-        # 検索対象の拡張子
-        supported_extensions = ['.glb', '.gltf', '.fbx', '.obj', '.dae', '.ply']
+        # 検索対象の拡張子（より具体的な順序で）
+        supported_extensions = ['.glb', '.gltf', '.fbx', '.obj', '.vrm', '.dae', '.ply']
         
         # 検索対象ディレクトリ（優先度順）
         search_paths = [
@@ -418,7 +448,7 @@ class FixedDirectoryManager:
                 # モデル名 + 拡張子のパターン
                 candidate = search_dir / f"{self.model_name}{ext}"
                 if candidate.exists():
-                    self.logger.info(f"✅ オリジナルファイル発見: {candidate}")
+                    self.logger.info(f"[OK] オリジナルファイル発見: {candidate}")
                     return candidate
         
         # モデル名での検索が失敗した場合、ディレクトリ内の3Dファイルを検索
@@ -430,7 +460,7 @@ class FixedDirectoryManager:
                 # ディレクトリ内の該当拡張子ファイルを検索
                 for candidate in search_dir.glob(f"*{ext}"):
                     if candidate.is_file():
-                        self.logger.info(f"✅ 3Dファイル発見: {candidate}")
+                        self.logger.info(f"[OK] 3Dファイル発見: {candidate}")
                         return candidate
         
         # 最後の手段: dataset_inference_clean内の全3Dファイル検索
@@ -438,8 +468,58 @@ class FixedDirectoryManager:
         if dataset_dir.exists():
             for file_path in dataset_dir.iterdir():
                 if file_path.is_file() and file_path.suffix.lower() in supported_extensions:
-                    self.logger.info(f"✅ dataset内3Dファイル発見: {file_path}")
+                    self.logger.info(f"[OK] dataset内3Dファイル発見: {file_path}")
                     return file_path
         
-        self.logger.error(f"❌ オリジナルファイルが見つかりません: {self.model_name}")
+        self.logger.error(f"[FAIL] オリジナルファイルが見つかりません: {self.model_name}")
+        return None
+
+    def get_original_file_extension(self) -> str:
+        """
+        アップロードされたファイルの拡張子を取得（シンプル実装）
+        
+        Returns:
+            str: 元のファイル拡張子（例: '.glb', '.fbx', '.obj'）
+                見つからない場合は '.fbx' をデフォルトとして返す
+        """
+        # 最もシンプルな方法: オリジナルファイルを検索して拡張子取得
+        original_file = self.find_original_model_file()
+        if original_file:
+            # ユーザーの指摘通り：ファイル名の末尾から最初のピリオドまで
+            ext = original_file.suffix.lower()
+            self.logger.info(f"[OK] オリジナルファイルから形式取得: {ext}")
+            return ext
+        
+        # デフォルト（FBX）
+        self.logger.warning("ファイル形式が特定できません。デフォルトとして .fbx を使用")
+        return '.fbx'
+
+    def get_step5_output_path_with_original_extension(self) -> Path:
+        """
+        Step5の最終出力パス（元ファイル形式を維持）
+        
+        Returns:
+            Path: 元のファイル形式での最終出力パス
+        """
+        original_ext = self.get_original_file_extension()
+        step5_dir = self.get_step_dir('step5')
+        return step5_dir / f"{self.model_name}_final{original_ext}"
+
+    def find_file_with_dynamic_extension(self, step: str, file_type: str) -> Optional[Path]:
+        """動的拡張子対応のファイル検索（Step5専用）"""
+        if step == 'step5' and file_type in ['final_output', 'final_fbx']:
+            # Step5ディレクトリで様々な拡張子を検索
+            step_dir = self.get_step_dir(step)
+            base_name = f"{self.model_name}_final"
+            
+            # 一般的な3D形式を検索
+            supported_extensions = ['.glb', '.gltf', '.fbx', '.obj', '.dae', '.ply']
+            
+            for ext in supported_extensions:
+                candidate_path = step_dir / f"{base_name}{ext}"
+                if candidate_path.exists():
+                    self.logger.info(f"[OK] 動的形式ファイル発見: {candidate_path}")
+                    return candidate_path
+        
+        # final_outputが見つからない場合はNoneを返す（エラーを避ける）
         return None

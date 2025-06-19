@@ -418,10 +418,10 @@ if __name__ == "__main__":
             output_file = output_path / f"{model_name}_final.fbx"
             
             # 統合Blender処理実行
-            success, logs, output_files = self.integrate_models(
+            success, logs, output_files = self.execute_integration(
+                merged_fbx=merged_file,
                 original_file=original_file,
-                merged_file=merged_file,
-                output_file=str(output_file),
+                output_fbx=str(output_file),
                 model_name=model_name
             )
             

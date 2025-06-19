@@ -70,6 +70,29 @@ class SkinSystem(L.LightningModule):
             assert False, f"Expected type of prediction from {self.model.__class__} to be a list or dict, found: {type(res)}"
 
 class SkinWriter(BasePredictionWriter):
+    """
+    🎨 UniRig Step3 スキニングライター - 核心出力処理クラス
+    ============================================
+    
+    【重要な役割】:
+    AI推論により生成されたスキンウェイト（ボーン影響度）を、
+    実際のFBXファイルとNPZファイルに出力する最重要クラス
+    
+    【処理フロー】:
+    1. AI推論結果（skin_pred）とメッシュデータ（raw_data）を受け取り
+    2. スキンウェイトをメッシュ頂点に正確にマッピング
+    3. スケルトン・メッシュ・スキンウェイトを統合したFBXファイルを生成
+    4. Step4で使用するスキンウェイトNPZファイルを生成
+    
+    【出力ファイルの重要性】:
+    - {model_name}_skinned.fbx: Step4マージ処理の核心入力データ
+    - {model_name}_skinning.npz: スキンウェイト数値データ
+    
+    【技術的特徴】:
+    - 頂点数差異吸収: サンプリング頂点から実頂点へのKDTreeマッピング
+    - UV・マテリアル保持: Step2から継承されたアセット情報の維持
+    - スキンウェイト正規化: 各頂点の影響度合計を1.0に調整
+    """
     def __init__(
         self,
         output_dir: str,
@@ -383,6 +406,26 @@ class SkinWriter(BasePredictionWriter):
                     logger.error(f"Error saving NPZ to '{npz_path}': {e}", exc_info=True)
 
             if self.export_fbx:
+                # 🎯 Step3の最重要出力: スキニング統合FBXファイル生成
+                # ============================================
+                # 
+                # 【重要な技術的処理】:
+                # このFBXファイルは、Step4マージ処理において
+                # 「スケルトン・スキンウェイト統合済みデータ」として使用される
+                # 
+                # 【データ構成】:
+                # - vertices: スキニング最適化メッシュの頂点座標
+                # - faces: メッシュの面情報
+                # - joints/tails: Step2から継承されたスケルトン構造
+                # - skin: AI推論により生成されたスキンウェイト行列
+                # - parents/names: ボーン階層・命名情報
+                # - uv_coords/materials: Step2から継承されたアセット情報
+                # 
+                # 【Step4との関係】:
+                # Step4のmerge.py内のtransfer()関数は、このFBXファイルから
+                # スケルトン構造（arranged_bones）とスキンウェイト（skin）を抽出し、
+                # オリジナルメッシュに転写する処理を行う
+                # 
                 fbx_base_name = "skinned_model" # Fixed base name for FBX as per test
                 fbx_path = self.make_path(fbx_base_name, "fbx", data_name_prefix=current_raw_data_name_prefix)
                 logger.info(f"Attempting to export FBX to: '{fbx_path}'")

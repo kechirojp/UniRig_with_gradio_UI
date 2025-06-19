@@ -31,7 +31,7 @@ from pathlib import Path
 # ステップモジュールのインポート
 from step_modules.step0_asset_preservation import Step0AssetPreservation
 from step_modules.step1_extract import Step1Extract
-from step_modules.step2_skeleton import Step2Skeleton
+from step_modules.step2_skeleton_old_02 import Step2Skeleton
 from step_modules.step3_skinning_unirig import Step3UniRigSkinning # UniRig本格スキニング実装
 from step_modules.step4_merge import Step4CrossPlatformMerge  # クロスプラットフォーム対応Step4
 from step_modules.step5_reliable_uv_material_transfer import Step5ReliableUVMaterialTransfer  # VRM対応UV・マテリアル転送
@@ -641,7 +641,7 @@ def call_full_pipeline(uploaded_file_path: str, gender: str, model_name: str, pr
         
         if success_5 and final_path:
             logs += f"\n🎉 === 6ステップフルパイプライン実行完了 ===\n"
-            logs += f"✅ 最終出力: {final_path}\n"
+            logs += f"[OK] 最終出力: {final_path}\n"
             progress(1.0, desc="フルパイプライン完了!")
             return final_path, logs, final_path, "フルパイプライン実行完了!"
         else:
@@ -650,7 +650,7 @@ def call_full_pipeline(uploaded_file_path: str, gender: str, model_name: str, pr
     except Exception as e:
         error_msg = f"フルパイプライン実行エラー: {str(e)}"
         app_logger.error(error_msg, exc_info=True)
-        return None, f"{logs}\n❌ {error_msg}", None, error_msg
+        return None, f"{logs}\n[FAIL] {error_msg}", None, error_msg
 
     # --- グローバル関数として各ステップハンドラーを定義 ---
     def handle_individual_step_wrapper(step_func, model_name, file_path, gender=None):
@@ -709,9 +709,9 @@ def call_full_pipeline(uploaded_file_path: str, gender: str, model_name: str, pr
             step_info = pipeline_state.get(step_key, {})
             status = step_info.get("status", "未実行")
             if status == "success":
-                status_text += f"✅ {step_name}: 完了\n"
+                status_text += f"[OK] {step_name}: 完了\n"
             elif status == "error":
-                status_text += f"❌ {step_name}: エラー\n"
+                status_text += f"[FAIL] {step_name}: エラー\n"
             else:
                 status_text += f"⏸️ {step_name}: 未実行\n"
         
@@ -1074,9 +1074,9 @@ def build_gradio_interface():
                 step_info = pipeline_state.get(step_key, {})
                 status = step_info.get("status", "未実行")
                 if status == "success":
-                    status_text += f"✅ {step_name}: 完了\n"
+                    status_text += f"[OK] {step_name}: 完了\n"
                 elif status == "error":
-                    status_text += f"❌ {step_name}: エラー\n"
+                    status_text += f"[FAIL] {step_name}: エラー\n"
                 else:
                     status_text += f"⏸️ {step_name}: 未実行\n"
             

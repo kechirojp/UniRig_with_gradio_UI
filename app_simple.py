@@ -21,7 +21,7 @@ from pathlib import Path
 # ステップモジュールのインポート
 from step_modules.step0_asset_preservation import Step0AssetPreservation
 from step_modules.step1_extract import Step1Extract
-from step_modules.step2_skeleton import Step2Skeleton
+from step_modules.step2_skeleton_old_02 import Step2Skeleton
 from step_modules.step3_skinning_unirig import Step3UniRigSkinning
 from step_modules.step4_merge import Step4CrossPlatformMerge
 from step_modules.step5_reliable_uv_material_transfer import Step5ReliableUVMaterialTransfer
@@ -127,7 +127,7 @@ class SimpleFileManager:
                 
         elif step == "step3":
             # Step3: スキニング
-            skinned_fbx = self.step_dirs['step3'] / f"{self.model_name}_skinned_unirig.fbx"
+            skinned_fbx = self.step_dirs['step3'] / f"{self.model_name}_skinned.fbx"
             if skinned_fbx.exists():
                 status = {"completed": True, "files": [str(skinned_fbx)], "message": "スキニング完了"}
                 
@@ -238,11 +238,11 @@ def execute_step4(model_name: str) -> tuple[bool, str]:
         fm = SimpleFileManager(model_name)
         # 必要ファイルの確認
         skeleton_fbx = fm.step_dirs['step2'] / f"{model_name}.fbx"
-        skinned_fbx = fm.step_dirs['step3'] / f"{model_name}_skinned_unirig.fbx"
+        skinned_fbx = fm.step_dirs['step3'] / f"{model_name}_skinned.fbx"
         if not skeleton_fbx.exists():
             return False, f"Step2の出力ファイル {model_name}.fbx が見つかりません"
         if not skinned_fbx.exists():
-            return False, f"Step3の出力ファイル {model_name}_skinned_unirig.fbx が見つかりません"
+            return False, f"Step3の出力ファイル {model_name}_skinned.fbx が見つかりません"
         
         step4 = Step4CrossPlatformMerge(model_name, fm.get_step_output_dir('step4'))
         success, logs, files = step4.merge_skeleton_skinning(model_name, {}, {"skeleton_fbx": str(skeleton_fbx)}, {"skinned_fbx": str(skinned_fbx)})

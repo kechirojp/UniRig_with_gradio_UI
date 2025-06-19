@@ -27,7 +27,7 @@ def verify_dataflow_integrity():
     print(f"\n🔍 テストモデル: {test_model}")
     
     # 1. 命名規則の厳格性確認
-    print("\n1. ✅ 命名規則厳格性確認")
+    print("\n1. [OK] 命名規則厳格性確認")
     
     all_steps = ["step0", "step1", "step2", "step3", "step4", "step5"]
     
@@ -41,16 +41,16 @@ def verify_dataflow_integrity():
             
             # 命名規則分析
             if filename.startswith(test_model):
-                naming_type = f"✅ モデル名接頭: {filename}"
+                naming_type = f"[OK] モデル名接頭: {filename}"
             elif filename in ["raw_data.npz", "predict_skeleton.npz", "textures"]:
-                naming_type = f"✅ 完全固定: {filename}"
+                naming_type = f"[OK] 完全固定: {filename}"
             else:
                 naming_type = f"⚠️ 要確認: {filename}"
             
             print(f"    {key}: {naming_type}")
     
     # 2. データフロー依存関係確認
-    print("\n2. ✅ データフロー依存関係確認")
+    print("\n2. [OK] データフロー依存関係確認")
     
     dataflow_mapping = {
         "step1": {"depends_on": ["step0"], "critical_files": ["raw_data.npz"]},
@@ -76,7 +76,7 @@ def verify_dataflow_integrity():
         print(f"    重要: {info['critical_files']}")
     
     # 3. 原流処理互換性確認
-    print("\n3. ✅ 原流処理互換性確認")
+    print("\n3. [OK] 原流処理互換性確認")
     
     critical_compatibility = {
         "step1_output": "raw_data.npz",  # 原流処理期待値
@@ -86,10 +86,10 @@ def verify_dataflow_integrity():
     }
     
     for key, expected in critical_compatibility.items():
-        print(f"    {key}: {expected} ✅")
+        print(f"    {key}: {expected} [OK]")
     
     # 4. 禁止パターン確認
-    print("\n4. ✅ 禁止パターン非使用確認")
+    print("\n4. [OK] 禁止パターン非使用確認")
     
     prohibited_patterns = [
         "glob.glob使用",
@@ -100,10 +100,10 @@ def verify_dataflow_integrity():
     ]
     
     for pattern in prohibited_patterns:
-        print(f"    ❌ {pattern}: 使用されていません ✅")
+        print(f"    [FAIL] {pattern}: 使用されていません [OK]")
     
     # 5. ステップ間データ受け渡し検証
-    print("\n5. ✅ ステップ間データ受け渡し検証")
+    print("\n5. [OK] ステップ間データ受け渡し検証")
     
     # Step1→Step2データフロー
     step1_output = fdm.get_expected_files("step1")["raw_data_npz"]
@@ -112,7 +112,7 @@ def verify_dataflow_integrity():
     print(f"    Step1→Step2:")
     print(f"      出力: {step1_output}")
     print(f"      入力: {step2_input}")
-    print(f"      整合性: {'✅ 一致' if step1_output == step2_input else '❌ 不一致'}")
+    print(f"      整合性: {'[OK] 一致' if step1_output == step2_input else '[FAIL] 不一致'}")
     
     # Step2→Step3データフロー
     step2_outputs = fdm.get_expected_files("step2")
@@ -126,16 +126,16 @@ def verify_dataflow_integrity():
     skeleton_match = step2_outputs["skeleton_fbx"] == step3_inputs["skeleton_fbx"]
     npz_match = step2_outputs["skeleton_npz"] == step3_inputs["skeleton_npz"]
     
-    print(f"      skeleton_fbx整合性: {'✅ 一致' if skeleton_match else '❌ 不一致'}")
-    print(f"      skeleton_npz整合性: {'✅ 一致' if npz_match else '❌ 不一致'}")
+    print(f"      skeleton_fbx整合性: {'[OK] 一致' if skeleton_match else '[FAIL] 不一致'}")
+    print(f"      skeleton_npz整合性: {'[OK] 一致' if npz_match else '[FAIL] 不一致'}")
     
     # 6. 結論
     print("\n=== 検証結果 ===")
-    print("✅ 命名規則: モデル名接頭または完全固定のみ使用")
-    print("✅ 原流処理互換性: 100%準拠")
-    print("✅ データフロー: 完全に整流化済み")
-    print("✅ 禁止パターン: 一切使用されていない")
-    print("✅ ファイル受け渡し: 完全に整合")
+    print("[OK] 命名規則: モデル名接頭または完全固定のみ使用")
+    print("[OK] 原流処理互換性: 100%準拠")
+    print("[OK] データフロー: 完全に整流化済み")
+    print("[OK] 禁止パターン: 一切使用されていない")
+    print("[OK] ファイル受け渡し: 完全に整合")
     
     print(f"\n🎯 結論: 現在のapp.pyデータフローは完璧に整流化されています")
     print("追加作業は不要です。")

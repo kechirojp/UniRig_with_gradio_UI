@@ -70,7 +70,7 @@ class TokenizeInput():
         return self.bones.shape[0]
 
 @dataclass(frozen=True)
-class DetokenzeOutput(Exporter):
+class DetokenizeOutput(Exporter):
     # original tokens
     tokens: ndarray
 
@@ -188,7 +188,7 @@ class TokenizerSpec(ABC):
     def tokenize(self, input: TokenizeInput) -> ndarray:
         pass
 
-    def detokenize(self, ids: ndarray, **kwargs) -> DetokenzeOutput:
+    def detokenize(self, ids: ndarray, **kwargs) -> DetokenizeOutput:
         raise NotImplementedError("{} has no method 'detokenize'".format(type(self).__name__))
     
     @abstractmethod

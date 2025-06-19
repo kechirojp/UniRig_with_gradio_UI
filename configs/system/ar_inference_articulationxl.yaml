@@ -1,11 +1,11 @@
 __target__: ar
 val_interval: 1
 generate_kwargs:
-  max_new_tokens: 4096  # モンスター/複雑クリーチャー対応で増加
+  max_new_tokens: 2048  # モンスター/複雑クリーチャー対応で増加
   num_return_sequences: 1
-  num_beams: 20  # より精密な探索のために増加
+  num_beams: 15  # より精密な探索のために増加
   do_sample: True
-  top_k: 10  # より多様性のために増加
+  top_k: 5  # より多様性のために増加
   top_p: 0.95
   repetition_penalty: 3.0
   temperature: 1.5 # must be a float

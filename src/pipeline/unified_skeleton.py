@@ -57,7 +57,7 @@ class UnifiedSkeletonGenerator:
                          model_name: str,
                          skeleton_task: str = "configs/task/quick_inference_skeleton_articulationxl_ar_256.yaml",
                          config: str = "configs/data/quick_inference.yaml",
-                         seed: int = 12345,
+                         seed: int = 42,
                          force_override: bool = False,
                          faces_target_count: int = 50000
                          ) -> Tuple[bool, str, Dict[str, Any]]:

@@ -21,31 +21,31 @@ def analyze_current_dataflow():
     # 決め打ちディレクトリ戦略の正しいパターン
     correct_patterns = {
         "step0": {
-            "preserved_file": "{model_name}.glb",           # ✅ モデル名接頭のみ
-            "metadata_json": "{model_name}_asset_metadata.json",  # ✅ モデル名接頭のみ
-            "textures_dir": "textures"                      # ✅ 完全固定
+            "preserved_file": "{model_name}.glb",           # [OK] モデル名接頭のみ
+            "metadata_json": "{model_name}_asset_metadata.json",  # [OK] モデル名接頭のみ
+            "textures_dir": "textures"                      # [OK] 完全固定
         },
         "step1": {
-            "raw_data_npz": "raw_data.npz"                  # ✅ 完全固定（原流処理期待値）
+            "raw_data_npz": "raw_data.npz"                  # [OK] 完全固定（原流処理期待値）
         },
         "step2": {
-            "skeleton_fbx": "{model_name}.fbx",             # ✅ モデル名接頭のみ（原流処理期待値）
-            "skeleton_npz": "predict_skeleton.npz"          # ✅ 完全固定（原流処理期待値）
+            "skeleton_fbx": "{model_name}.fbx",             # [OK] モデル名接頭のみ（原流処理期待値）
+            "skeleton_npz": "predict_skeleton.npz"          # [OK] 完全固定（原流処理期待値）
         },
         "step3": {
-            "skinned_fbx": "{model_name}_skinned_unirig.fbx",  # ✅ モデル名接頭のみ
-            "skinning_npz": "{model_name}_skinning.npz"       # ✅ モデル名接頭のみ
+            "skinned_fbx": "{model_name}_skinned_unirig.fbx",  # [OK] モデル名接頭のみ
+            "skinning_npz": "{model_name}_skinning.npz"       # [OK] モデル名接頭のみ
         },
         "step4": {
-            "merged_fbx": "{model_name}_merged.fbx"         # ✅ モデル名接頭のみ
+            "merged_fbx": "{model_name}_merged.fbx"         # [OK] モデル名接頭のみ
         },
         "step5": {
-            "final_fbx": "{model_name}_final.fbx",          # ✅ モデル名接頭のみ
-            "final_fbm_dir": "{model_name}_final.fbm"       # ✅ モデル名接頭のみ
+            "final_fbx": "{model_name}_final.fbx",          # [OK] モデル名接頭のみ
+            "final_fbm_dir": "{model_name}_final.fbm"       # [OK] モデル名接頭のみ
         }
     }
     
-    print("✅ 正しい命名規則パターン:")
+    print("[OK] 正しい命名規則パターン:")
     for step, files in correct_patterns.items():
         print(f"  {step}:")
         for key, pattern in files.items():
@@ -118,7 +118,7 @@ def analyze_current_dataflow():
         "flexible_naming_scheme()"
     ]
     
-    print("❌ 実装禁止パターン:")
+    print("[FAIL] 実装禁止パターン:")
     for pattern in dangerous_patterns:
         print(f"  - {pattern}")
     

@@ -70,8 +70,9 @@ bash ./launch/inference/generate_skeleton.sh /path/to/model.glb /path/to/output 
 # Step 3: 依存ファイル確認とスキニング適用
 bash ./launch/inference/generate_skin.sh /path/to/model.glb /path/to/output bird
 
-# Step 4: ファイルパス指定と最終マージ
-bash ./launch/inference/merge.sh /skeleton.fbx /skinned.fbx /merged.fbx
+# Step 4: 3つのデータソース統合マージ（高度技術）
+bash ./launch/inference/merge.sh /skeleton.fbx /original_model.glb /merged.fbx
+# 【重要】実際は: スケルトンFBX + オリジナルメッシュ + メモリ内スキニングデータの統合
 ```
 
 **問題の深刻度**:
@@ -207,8 +208,8 @@ def process_complete_pipeline(input_file, gender="neutral"):
 ├── 03_skinning/               # Step3: スキニング適用
 │   ├── {model_name}_skinned_unirig.fbx
 │   └── skinning_data.npz
-├── 04_merge/                  # Step4: 統合処理
-│   └── {model_name}_merged.fbx
+├── 04_merge/                  # Step4: 3つのデータソース統合マージ
+│   └── {model_name}_merged.fbx  # オリジナルメッシュ+AIスケルトン+AIスキニング統合済み
 └── 05_blender_integration/    # Step5: 最終統合（新設）
     └── {model_name}_final.fbx
 ```

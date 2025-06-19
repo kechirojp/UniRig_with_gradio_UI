@@ -94,7 +94,7 @@ class Step5SimplifiedBlenderIntegration:
                 elapsed_time = time.time() - start_time
                 file_size_mb = final_fbx_path.stat().st_size / (1024 * 1024)
                 
-                self.logger.info(f"✅ Step5統合完了: {final_fbx_path} ({file_size_mb:.1f}MB, {elapsed_time:.1f}秒)")
+                self.logger.info(f"[OK] Step5統合完了: {final_fbx_path} ({file_size_mb:.1f}MB, {elapsed_time:.1f}秒)")
                 
                 return True, f"Step5統合完了: {model_name} ({file_size_mb:.1f}MB, {elapsed_time:.1f}秒)", {
                     "final_fbx": str(final_fbx_path)

@@ -158,36 +158,37 @@ writer:
 ## 📋 4. merge.sh の詳細解析
 
 ### 🎯 役割・目的
-- スケルトンFBXとスキニングFBXの統合
-- テクスチャとリギング情報の結合
-- 最終的な完成品FBXファイルの生成
+- 3つのデータソース（オリジナルメッシュ、AIスケルトン、AIスキニング）の統合
+- KDTreeマッチングによる頂点数差異吸収システム
+- 完全なリギングシステムの構築
 
 ### 📥 入力要件
 | パラメータ | 必須/オプション | 説明 | デフォルト値 |
 |-----------|---------------|------|-------------|
-| `--source` | 必須 | スケルトンFBXファイルパス | なし |
-| `--target` | 必須 | スキニングFBXファイルパス | なし |
-| `--output` | 必須 | 出力FBXファイルパス | なし |
+| `--source` | 必須 | AIスケルトンFBXファイルパス（Step2出力） | なし |
+| `--target` | 必須 | オリジナルメッシュファイルパス（ユーザーアップロード） | なし |
+| `--output` | 必須 | 統合済みFBXファイルパス | なし |
 | `--model_name` | 必須 | モデル識別名 | なし |
 
 ### 📤 出力ファイル
 | ファイル名 | 場所 | 形式 | 内容 |
 |-----------|------|------|------|
-| `{model_name}_merged.fbx` | 指定パス | FBX | 統合済みFBXファイル（スケルトン+スキニング） |
+| `{model_name}_merged.fbx` | 指定パス | FBX | 3つのデータソース統合済みFBXファイル（オリジナルメッシュ+AIスケルトン+AIスキニング） |
 
 ### 🔧 実行コマンド
 ```bash
 bash ./launch/inference/merge.sh \
-    --source /path/to/skeleton.fbx \
-    --target /path/to/skinned.fbx \
+    --source /path/to/step2_skeleton.fbx \
+    --target /path/to/original_model.glb \
     --output /path/to/merged.fbx \
     --model_name bird
 ```
 
 ### ⚠️ 重要な注意点
-- **Python モジュール**: `src.inference.merge` を直接呼び出し
+- **3つのデータソース統合**: オリジナルメッシュ、AIスケルトン、AIスキニングの高度な統合処理
+- **KDTreeマッチング**: 頂点数差異を空間的最近傍検索で吸収
+- **座標系統一**: AI処理座標からオリジナルメッシュサイズへの変換
 - **ASCII FBX問題**: ASCII形式のFBXファイルは非対応（Binary FBXのみ）
-- **統一命名規則**: 出力ファイルが規則に従わない場合は自動リネーム
 
 ---
 
@@ -285,15 +286,17 @@ def apply_skinning_step3(model_name: str, input_dir: str, output_dir: str):
 
 ### 📋 Step 4 (merge.sh) の実装
 ```python
-def merge_skeleton_skinning_step4(model_name: str, skeleton_file: str, skinned_file: str, output_dir: str):
+def merge_skeleton_skinning_step4(model_name: str, skinned_fbx: str, original_file: str, output_dir: str):
     """
     入力:
-    - {model_name}.fbx (skeleton)
-    - {model_name}_skinned_unirig.fbx (skinning)
+    - {model_name}_skinned.fbx (AIスキニング済み - Step3出力) - source引数
+    - original_model.glb (オリジナルメッシュ - ユーザーアップロード) - target引数
+    - AIスケルトンデータ (メモリ内、Step3処理で既に統合済み)
     出力: {model_name}_merged.fbx
     配置: {output_dir}/04_merge/
     
-    重要: Binary FBX形式の検証が必須
+    重要: 3つのデータソースをKDTreeマッチングで統合
+    最新知見: skinned_fbx（Step3出力）をsourceとして使用
     """
 ```
 

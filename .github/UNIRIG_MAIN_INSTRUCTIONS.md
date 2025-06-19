@@ -39,8 +39,8 @@
 │   ├── {model_name}_skinned_unirig.fbx
 │   ├── skinning_data.npz
 │   └── inference_datalist.txt # Step3実行必須
-├── 04_merge/                  # Step4: 統合処理
-│   ├── {model_name}_merged.fbx
+├── 04_merge/                  # Step4: 3つのデータソース統合マージ（KDTree技術）
+│   ├── {model_name}_merged.fbx   # オリジナルメッシュ+AIスケルトン+AIスキニング統合済み
 │   └── merge_process.log
 └── 05_blender_integration/    # Step5: 最終統合
     └── {model_name}_final.fbx
@@ -106,7 +106,7 @@ def process_complete_pipeline(input_file, gender="neutral"):
     step1_result = extract_mesh(model_name)  
     step2_result = generate_skeleton(model_name, gender)
     step3_result = apply_skinning(model_name)
-    step4_result = merge_skeleton_skinning(model_name)
+    step4_result = merge_three_data_sources(model_name, input_file)  # 3つのデータソース統合
     step5_result = integrate_blender_processing(model_name)
     
     return step5_result  # 最終FBXファイルパス

@@ -16,8 +16,8 @@ applyTo: '**'
 │   │   └── raw_data.npz       # スキニング用再抽出メッシュ
 │   ├── {model_name}_skinned.fbx
 │   └── {model_name}_skinning.npz
-├── 04_merge/                  # Step4: 骨・スキン統合
-│   └── {model_name}_merged.fbx
+├── 04_merge/                  # Step4: 3つのデータソース統合マージ（KDTreeマッチング）
+│   └── {model_name}_merged.fbx  # オリジナルメッシュ+AIスケルトン+AIスキニング統合
 └── 05_blender_integration/    # Step5: 最終成果物
     └── {model_name}_rigged.fbx ← これがユーザーが求める成果物
 

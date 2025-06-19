@@ -79,7 +79,7 @@ class Step1Extract:
             self.logger.info(f"Step 1 開始: 入力 '{input_file_path}', モデル名 '{model_name}'")
             
             if not input_file_path.exists():
-                error_msg = f"❌ 入力ファイルが見つかりません: {input_file_path}"
+                error_msg = f"[FAIL] 入力ファイルが見つかりません: {input_file_path}"
                 self.logger.error(error_msg)
                 return False, error_msg, {}
             
@@ -111,13 +111,13 @@ class Step1Extract:
                     config_file_path = alt_config_path
                     logs += f"⚠️ メイン設定ファイル {config_file_path} が見つかりません。代替 {alt_config_path} を使用します。\\n"
                 else:
-                    error_msg = f"❌ 設定ファイルが見つかりません: {config_file_path} および {alt_config_path}"
+                    error_msg = f"[FAIL] 設定ファイルが見つかりません: {config_file_path} および {alt_config_path}"
                     self.logger.error(error_msg)
                     return False, error_msg, {}
             
             logs += f"🔍 メッシュ抽出開始: '{persistent_input_file.name}' を使用\\n"
             logs += f"⚙️ 設定ファイル: '{config_file_path}'\\n"
-            logs += f"📁 出力先ディレクトリ (メッシュ抽出): '{self.output_dir}'\\n"
+            logs += f"[FILE] 出力先ディレクトリ (メッシュ抽出): '{self.output_dir}'\\n"
             
             # UniRig src.data.extract 実行コマンド（全必須パラメータ提供）
             cmd = [
@@ -156,7 +156,7 @@ class Step1Extract:
             actual_npz_path = self._find_output_npz(self.output_dir, model_name)
             
             if result.returncode == 0:
-                logs += "✅ UniRig抽出プロセス正常終了\\n"
+                logs += "[OK] UniRig抽出プロセス正常終了\\n"
             else:
                 logs += f"⚠️ UniRig抽出プロセス終了 (return code: {result.returncode})\\n"
                 logs += f"STDOUT: {result.stdout}\\n"
@@ -192,10 +192,10 @@ class Step1Extract:
                     output_files.update(texture_info)
                     logs += f"🎨 (Step1) テクスチャメタデータ保存試行完了。結果: {texture_info.get('texture_metadata')}\\n"
                 
-                logs += "✅ Step 1: メッシュ抽出完了\\n"
+                logs += "[OK] Step 1: メッシュ抽出完了\\n"
                 return True, logs, output_files
             else:
-                error_msg = f"❌ NPZファイルが見つかりません。検索パターン:\\n"
+                error_msg = f"[FAIL] NPZファイルが見つかりません。検索パターン:\\n"
                 error_msg += f"- {self.output_dir / 'raw_data.npz'}\\n"
                 error_msg += f"- {self.output_dir / model_name / 'raw_data.npz'}\\n"
                 error_msg += f"- {self.output_dir / f'{model_name}.npz'}\\n"
@@ -207,12 +207,12 @@ class Step1Extract:
                 return False, logs, {}
                 
         except subprocess.TimeoutExpired:
-            error_msg = "❌ タイムアウト: メッシュ抽出処理が5分を超過しました"
+            error_msg = "[FAIL] タイムアウト: メッシュ抽出処理が5分を超過しました"
             logs += error_msg + "\\n"
             self.logger.error(error_msg)
             return False, logs, {}
         except Exception as e:
-            error_msg = f"❌ Step 1 実行エラー: {type(e).__name__} - {e}"
+            error_msg = f"[FAIL] Step 1 実行エラー: {type(e).__name__} - {e}"
             logs += error_msg + "\\n"
             self.logger.error(error_msg, exc_info=True)
             return False, logs, {}

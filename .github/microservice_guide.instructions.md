@@ -64,10 +64,14 @@ app.py (Gradio UI + データ受け渡し・進行管理)
 - **入力**: `raw_data.npz`, `predict_skeleton.npz`, `{model_name}.fbx`
 - **出力**: **`{model_name}_skinned_unirig.fbx`**
 
-#### ⚙️ Step 4 Module - スケルトン・スキンウェイトマージ（特化機能）
-- **責務**: スケルトンとスキンウェイトのマージに専念（テクスチャ処理は除外）
-- **入力**: Step2とStep3の出力FBXファイル
-- **出力**: **`{model_name}_merged.fbx`**
+#### ⚙️ Step 4 Module - 3つのデータソース統合マージ（高度技術）
+- **責務**: オリジナルメッシュ・AIスケルトン・AIスキニングの高度な統合処理
+- **入力**: 
+  - ユーザーアップロードのオリジナルメッシュファイル
+  - Step2出力のスケルトンFBXファイル
+  - Step3出力のスキニングNPZデータ（メモリ内）
+- **核心技術**: KDTree最近傍マッチングによる頂点数差異吸収システム
+- **出力**: **`{model_name}_merged.fbx`** (3つのデータソース完全統合済み)
 
 #### 🎨 Step 5 Module - Blender統合・最終出力（新設）
 - **責務**: オリジナルモデルのアセット情報とマージ済みモデルを統合し、最終FBXを出力
@@ -169,19 +173,28 @@ def apply_skinning(model_name: str, mesh_file: str, skeleton_file: str) -> tuple
     """
 ```
 
-### Step 4 Interface（マージ特化）
+### Step 4 Interface（3つのデータソース統合マージ）
 ```python
-def merge_skeleton_skinning(model_name: str, step1_files: dict, step2_files: dict, step3_files: dict) -> tuple[bool, str, dict]:
+def merge_skeleton_skinning(model_name: str, original_file: str, step2_files: dict, step3_files: dict) -> tuple[bool, str, dict]:
     """
+    【重要な技術的発見】Step4は3つのデータソースの高度な統合処理
+    
     Args:
         model_name: モデル識別名
-        step1_files: Step1出力ファイル辞書
-        step2_files: Step2出力ファイル辞書  
-        step3_files: Step3出力ファイル辞書
+        original_file: ユーザーアップロードのオリジナルメッシュファイル（target引数相当）
+        step2_files: Step2出力ファイル辞書（source引数相当のスケルトンFBX含む）
+        step3_files: Step3出力ファイル辞書（スキニングNPZデータ含む）
+    
+    データソース統合:
+        1. オリジナルメッシュ: 実際の形状・UV・テクスチャ（5,742頂点例）
+        2. AIスケルトン: Step2生成ボーン構造（joints, names, parents, tails）
+        3. AIスキニング: Step3生成ウェイト情報（2,048頂点例、正規化座標）
+    
+    核心技術: KDTree最近傍マッチングによる頂点数差異吸収システム
     
     Returns:
         success: True/False
-        logs: "スケルトン・スキンウェイトマージ完了: /path/to/merged.fbx"
+        logs: "3つのデータソース統合マージ完了: /path/to/merged.fbx"
         output_files: {
             "merged_fbx": "/path/to/merged.fbx"
         }
@@ -226,8 +239,8 @@ def process_complete_pipeline(input_file, gender):
     # Step 3: スキニング適用
     success, logs, files = apply_skinning(model_name, files["extracted_npz"], files["skeleton_fbx"])
     
-    # Step 4: スケルトン・スキンウェイトマージ（特化）
-    success, logs, files = merge_skeleton_skinning(model_name, step1_files, step2_files, step3_files)
+    # Step 4: 3つのデータソース統合マージ（高度技術）
+    success, logs, files = merge_skeleton_skinning(model_name, input_file, files["skinned_fbx"], step2_files)
     
     # Step 5: Blender統合・最終出力（新設）
     success, logs, files = integrate_with_blender(model_name, input_file, files["merged_fbx"])
